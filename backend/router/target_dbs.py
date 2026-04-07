@@ -7,6 +7,7 @@ from backend.models.target_db import TargetDB
 from backend.models.metric_value import MetricValue
 from backend.models.metric_run import MetricRun
 from backend.models.metric_def import MetricDef
+
 from backend.schemas.target_db import (
     TargetDBCreate,
     TargetDBUpdate,
@@ -77,10 +78,15 @@ def get_target_db_overview(db_id: int, db: Session = Depends(get_db)):
                 unit=metric.unit,
             )
 
+    db_type_name = None
+    if obj.db_type is not None:
+        db_type_name = obj.db_type.name
+
     return TargetDBOverviewOut(
         db_id=int(obj.db_id),
         db_name=obj.db_name,
         db_type_id=int(obj.db_type_id),
+        db_type_name=db_type_name,
         host=obj.host,
         port=int(obj.port),
         service_name=obj.service_name,

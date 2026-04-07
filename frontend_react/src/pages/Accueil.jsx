@@ -11,6 +11,69 @@ import {
 } from "recharts";
 import api from "../api/client";
 
+const COMPARISON_OPTIONS = [
+  { key: "CPU", label: "CPU Oracle ↔ THREADS_RUNNING MySQL" },
+  {
+    key: "SESSIONS",
+    label: "ACTIVE_SESSIONS Oracle ↔ THREADS_CONNECTED MySQL",
+  },
+];
+
+function getDbTypeCode(db) {
+  return String(
+    db?.db_type?.code ||
+      db?.db_type_code ||
+      db?.type_code ||
+      db?.db_type_name ||
+      db?.type_name ||
+      db?.db_type_id ||
+      ""
+  )
+    .trim()
+    .toUpperCase();
+}
+
+function isMysqlDb(db) {
+  const dbType = getDbTypeCode(db);
+  const dbName = String(db?.db_name || "").trim().toUpperCase();
+  const dbTypeId = Number(db?.db_type_id);
+
+  return (
+    dbType === "MYSQL" ||
+    dbName === "MY SQL" ||
+    dbName === "MYSQL" ||
+    dbName.startsWith("MY_SQL") ||
+    dbTypeId === 21 ||
+    dbTypeId === 2
+  );
+}
+
+function isOracleDb(db) {
+  const dbType = getDbTypeCode(db);
+  const dbName = String(db?.db_name || "").trim().toUpperCase();
+  const dbTypeId = Number(db?.db_type_id);
+
+  return (
+    dbType === "ORACLE" ||
+    dbTypeId === 1 ||
+    dbName.includes("ORCL") ||
+    dbName.includes("ORACLE") ||
+    dbName.includes("19C")
+  );
+}
+
+function formatHistoryLabel(value) {
+  if (!value) return "-";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export default function Accueil() {
   const [backendOk, setBackendOk] = useState(false);
   const [targetDbs, setTargetDbs] = useState([]);
@@ -22,6 +85,9 @@ export default function Accueil() {
   const [selectedDbOverview, setSelectedDbOverview] = useState(null);
   const [selectedDbHistory, setSelectedDbHistory] = useState([]);
   const [metricsLoading, setMetricsLoading] = useState(false);
+  const [comparisonMetric, setComparisonMetric] = useState("CPU");
+  const [allHistoryByDb, setAllHistoryByDb] = useState({});
+  const [comparisonLoading, setComparisonLoading] = useState(false);
 
   const navigate = useNavigate();
 
@@ -56,18 +122,31 @@ export default function Accueil() {
 
   const backendLabel = backendOk ? "En ligne" : "Hors ligne";
 
-  const oracleBases = useMemo(() => {
-    return targetDbs.filter((db) => {
-      const isActive = Number(db.is_active || 0) === 1;
-      return isActive;
-    });
+  const activeDbs = useMemo(() => {
+    return targetDbs.filter((db) => Number(db.is_active || 0) === 1);
   }, [targetDbs]);
 
+  const oracleBases = useMemo(() => {
+    return activeDbs.filter((db) => isOracleDb(db));
+  }, [activeDbs]);
+
+  const mysqlBases = useMemo(() => {
+    return activeDbs.filter((db) => isMysqlDb(db));
+  }, [activeDbs]);
+
   useEffect(() => {
-    if (!selectedDbId && oracleBases.length > 0) {
-      setSelectedDbId(oracleBases[0].db_id);
+    if (!selectedDbId && activeDbs.length > 0) {
+      const local19c = activeDbs.find(
+        (db) => String(db.db_name || "").toUpperCase() === "LOCAL_19C"
+      );
+      if (local19c) {
+        setSelectedDbId(local19c.db_id);
+        return;
+      }
+
+      setSelectedDbId(activeDbs[0].db_id);
     }
-  }, [oracleBases, selectedDbId]);
+  }, [activeDbs, selectedDbId]);
 
   useEffect(() => {
     if (!selectedDbId) return;
@@ -94,6 +173,44 @@ export default function Accueil() {
 
     chargerVisualisation();
   }, [selectedDbId]);
+
+  useEffect(() => {
+    if (!activeDbs.length) return;
+
+    const chargerComparaison = async () => {
+      setComparisonLoading(true);
+
+      try {
+        const results = await Promise.all(
+          activeDbs.map(async (db) => {
+            try {
+              const res = await api.get(`/target-dbs/${db.db_id}/metrics-history?limit=120`);
+              return {
+                dbId: String(db.db_id),
+                rows: Array.isArray(res?.data) ? res.data : [],
+              };
+            } catch (err) {
+              console.error(`Erreur historique DB ${db.db_id}`, err);
+              return {
+                dbId: String(db.db_id),
+                rows: [],
+              };
+            }
+          })
+        );
+
+        const map = {};
+        results.forEach((item) => {
+          map[item.dbId] = item.rows;
+        });
+        setAllHistoryByDb(map);
+      } finally {
+        setComparisonLoading(false);
+      }
+    };
+
+    chargerComparaison();
+  }, [activeDbs]);
 
   const activeMetrics = metricDefs.filter((m) => Number(m.is_active || 0) === 1).length;
 
@@ -154,14 +271,7 @@ export default function Accueil() {
       if (!grouped[code]) grouped[code] = [];
 
       grouped[code].push({
-        label: row.collected_at
-          ? new Date(row.collected_at).toLocaleString("fr-FR", {
-              day: "2-digit",
-              month: "2-digit",
-              hour: "2-digit",
-              minute: "2-digit",
-            })
-          : "-",
+        label: formatHistoryLabel(row.collected_at),
         value: row.value_number,
         warn_threshold: row.warn_threshold,
         crit_threshold: row.crit_threshold,
@@ -200,6 +310,133 @@ export default function Accueil() {
       );
   }, [selectedLatestMetrics, historyByMetric]);
 
+  const comparisonDbTargets = useMemo(() => {
+    const preferredOracle =
+      oracleBases.find((db) => String(db.db_name || "").toUpperCase() === "LOCAL_19C") ||
+      oracleBases[0] ||
+      null;
+
+    const preferredMysql =
+      mysqlBases.find((db) => String(db.db_name || "").toUpperCase() === "MY SQL") ||
+      mysqlBases[0] ||
+      null;
+
+    return {
+      oracle: preferredOracle,
+      mysql: preferredMysql,
+    };
+  }, [oracleBases, mysqlBases]);
+
+  const comparisonChartMeta = useMemo(() => {
+    const oracleDb = comparisonDbTargets.oracle;
+    const mysqlDb = comparisonDbTargets.mysql;
+
+    if (!oracleDb || !mysqlDb) {
+      return {
+        data: [],
+        title: "Comparaison inter-bases",
+        oracleLabel: oracleDb?.db_name || "Oracle",
+        mysqlLabel: mysqlDb?.db_name || "MySQL",
+      };
+    }
+
+    const oracleRows = Array.isArray(allHistoryByDb[String(oracleDb.db_id)])
+      ? allHistoryByDb[String(oracleDb.db_id)]
+      : [];
+    const mysqlRows = Array.isArray(allHistoryByDb[String(mysqlDb.db_id)])
+      ? allHistoryByDb[String(mysqlDb.db_id)]
+      : [];
+
+    let oracleMetricCodes = [];
+    let mysqlMetricCodes = [];
+    let title = "";
+
+    if (comparisonMetric === "CPU") {
+      oracleMetricCodes = ["CPU_USED_SESSION"];
+      mysqlMetricCodes = ["THREADS_RUNNING"];
+      title = "Comparaison CPU Oracle / Threads Running MySQL";
+    } else {
+      oracleMetricCodes = ["ACTIVE_SESSIONS"];
+      mysqlMetricCodes = ["THREADS_CONNECTED"];
+      title = "Comparaison Active Sessions Oracle / Threads Connected MySQL";
+    }
+
+    const oraclePrepared = oracleRows
+      .filter((row) => oracleMetricCodes.includes(String(row.metric_code || "").toUpperCase()))
+      .map((row) => ({
+        timestamp: row.collected_at ? new Date(row.collected_at).getTime() : null,
+        value: Number(row.value_number),
+      }))
+      .filter((row) => row.timestamp && Number.isFinite(row.value))
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    const mysqlPrepared = mysqlRows
+      .filter((row) => mysqlMetricCodes.includes(String(row.metric_code || "").toUpperCase()))
+      .map((row) => ({
+        timestamp: row.collected_at ? new Date(row.collected_at).getTime() : null,
+        value: Number(row.value_number),
+      }))
+      .filter((row) => row.timestamp && Number.isFinite(row.value))
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    const oracleReduced = oraclePrepared.slice(-40);
+    const mysqlReduced = mysqlPrepared.slice(-40);
+
+    const allTimestamps = Array.from(
+      new Set([
+        ...oracleReduced.map((item) => item.timestamp),
+        ...mysqlReduced.map((item) => item.timestamp),
+      ])
+    ).sort((a, b) => a - b);
+
+    let lastOracle = null;
+    let lastMysql = null;
+
+    const oracleMap = new Map(oracleReduced.map((item) => [item.timestamp, item.value]));
+    const mysqlMap = new Map(mysqlReduced.map((item) => [item.timestamp, item.value]));
+
+    const merged = allTimestamps.map((ts) => {
+      if (oracleMap.has(ts)) lastOracle = oracleMap.get(ts);
+      if (mysqlMap.has(ts)) lastMysql = mysqlMap.get(ts);
+
+      return {
+        label: formatHistoryLabel(ts),
+        oracle: lastOracle,
+        mysql: lastMysql,
+      };
+    });
+
+    return {
+      data: merged.slice(-30),
+      title,
+      oracleLabel: `${oracleDb.db_name || "Oracle"} (CPU_USED_SESSION${
+        comparisonMetric === "CPU" ? "" : ""
+      })`,
+      mysqlLabel:
+        comparisonMetric === "CPU"
+          ? `${mysqlDb.db_name || "MySQL"} (THREADS_RUNNING)`
+          : `${mysqlDb.db_name || "MySQL"} (THREADS_CONNECTED)`,
+    };
+  }, [allHistoryByDb, comparisonDbTargets, comparisonMetric]);
+
+  const displayedOracleLabel = useMemo(() => {
+    const oracleDb = comparisonDbTargets.oracle;
+    if (!oracleDb) return "Oracle";
+
+    return comparisonMetric === "CPU"
+      ? `${oracleDb.db_name || "Oracle"} (CPU_USED_SESSION)`
+      : `${oracleDb.db_name || "Oracle"} (ACTIVE_SESSIONS)`;
+  }, [comparisonDbTargets, comparisonMetric]);
+
+  const displayedMysqlLabel = useMemo(() => {
+    const mysqlDb = comparisonDbTargets.mysql;
+    if (!mysqlDb) return "MySQL";
+
+    return comparisonMetric === "CPU"
+      ? `${mysqlDb.db_name || "MySQL"} (THREADS_RUNNING)`
+      : `${mysqlDb.db_name || "MySQL"} (THREADS_CONNECTED)`;
+  }, [comparisonDbTargets, comparisonMetric]);
+
   if (chargement) {
     return (
       <div style={styles.page}>
@@ -225,8 +462,8 @@ export default function Accueil() {
 
       <div style={styles.kpiGrid}>
         <KpiCard
-          label="BASES ORACLE ACTIVES"
-          value={String(oracleBases.length)}
+          label="BASES ACTIVES"
+          value={String(activeDbs.length)}
           sub="bases actives affichées"
           accent="#2563eb"
         />
@@ -238,13 +475,93 @@ export default function Accueil() {
         />
       </div>
 
+      <Card title="COMPARAISON INTER-BASES">
+        <div style={styles.compareHeader}>
+          <div>
+            <div style={styles.compareTitle}>{comparisonChartMeta.title}</div>
+            <div style={styles.compareSub}>
+              Oracle : <strong>{displayedOracleLabel}</strong> · MySQL :{" "}
+              <strong>{displayedMysqlLabel}</strong>
+            </div>
+          </div>
+
+          <div style={styles.compareTabs}>
+            {COMPARISON_OPTIONS.map((opt) => (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => setComparisonMetric(opt.key)}
+                style={{
+                  ...styles.compareTab,
+                  ...(comparisonMetric === opt.key ? styles.compareTabActive : {}),
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {comparisonLoading ? (
+          <div style={styles.loadingInline}>Chargement de la comparaison...</div>
+        ) : comparisonChartMeta.data.length === 0 ? (
+          <EmptyBox message="Pas assez de données pour afficher la comparaison inter-bases." />
+        ) : (
+          <div style={styles.compareChartWrap}>
+            <ResponsiveContainer width="100%" height={340}>
+              <LineChart data={comparisonChartMeta.data}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#dbe3ef" />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 11, fill: "#64748b" }}
+                  stroke="#94a3b8"
+                  minTickGap={20}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: "#64748b" }}
+                  stroke="#94a3b8"
+                  width={48}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "#ffffff",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 12,
+                    fontSize: 12,
+                    boxShadow: "0 8px 24px rgba(15,23,42,0.08)",
+                  }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="oracle"
+                  name={displayedOracleLabel}
+                  stroke="#2563eb"
+                  strokeWidth={2.8}
+                  dot={false}
+                  connectNulls
+                />
+                <Line
+                  type="monotone"
+                  dataKey="mysql"
+                  name={displayedMysqlLabel}
+                  stroke="#10b981"
+                  strokeWidth={2.8}
+                  dot={false}
+                  connectNulls
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </Card>
+
       <div style={styles.stackLayout}>
-        <Card title="BASES ORACLE SURVEILLÉES">
-          {oracleBases.length === 0 ? (
-            <EmptyBox message="Aucune base Oracle active trouvée." />
+        <Card title="BASES SURVEILLÉES">
+          {activeDbs.length === 0 ? (
+            <EmptyBox message="Aucune base active trouvée." />
           ) : (
             <div style={styles.dbCardGrid}>
-              {oracleBases.map((db) => {
+              {activeDbs.map((db) => {
                 const status = getDbStatus(db.db_id);
                 const statusStyles = getStatusStyles(status);
                 const alertsCount = openAlertsByDb[String(db.db_id)] || 0;
@@ -278,7 +595,10 @@ export default function Accueil() {
                     </div>
 
                     <div style={styles.dbMetaGrid}>
-                      <InfoMini label="Type" value="Oracle" />
+                      <InfoMini
+                        label="Type"
+                        value={isMysqlDb(db) ? "MySQL" : isOracleDb(db) ? "Oracle" : "—"}
+                      />
                       <InfoMini label="Port" value={String(db.port || "—")} />
                       <InfoMini
                         label="Statut"
@@ -295,10 +615,7 @@ export default function Accueil() {
                           </span>
                         }
                       />
-                      <InfoMini
-                        label="Alertes ouvertes"
-                        value={String(alertsCount)}
-                      />
+                      <InfoMini label="Alertes ouvertes" value={String(alertsCount)} />
                       <InfoMini
                         label="Dernière collecte"
                         value={
@@ -345,7 +662,18 @@ export default function Accueil() {
               </div>
 
               <div style={styles.selectedDbInfoGrid}>
-                <InfoMini label="Type" value="Oracle" />
+                <InfoMini
+                  label="Type"
+                  value={
+                    selectedDbOverview
+                      ? isMysqlDb(selectedDbOverview)
+                        ? "MySQL"
+                        : isOracleDb(selectedDbOverview)
+                        ? "Oracle"
+                        : "—"
+                      : "—"
+                  }
+                />
                 <InfoMini
                   label="Host"
                   value={selectedDbOverview?.host || "localhost"}
@@ -671,6 +999,7 @@ const styles = {
   stackLayout: {
     display: "grid",
     gap: 20,
+    marginTop: 20,
   },
 
   card: {
@@ -935,5 +1264,54 @@ const styles = {
     border: "1px dashed #cbd5e1",
     borderRadius: 12,
     color: "#94a3b8",
+  },
+
+  compareHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 16,
+    marginBottom: 16,
+    flexWrap: "wrap",
+  },
+
+  compareTitle: {
+    fontSize: 18,
+    fontWeight: 800,
+    color: "#0f172a",
+    marginBottom: 4,
+  },
+
+  compareSub: {
+    fontSize: 14,
+    color: "#64748b",
+  },
+
+  compareTabs: {
+    display: "flex",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+
+  compareTab: {
+    border: "1px solid #cbd5e1",
+    background: "#ffffff",
+    color: "#334155",
+    borderRadius: 999,
+    padding: "8px 14px",
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+
+  compareTabActive: {
+    background: "#eff6ff",
+    color: "#1d4ed8",
+    border: "1px solid #bfdbfe",
+  },
+
+  compareChartWrap: {
+    width: "100%",
+    height: 340,
   },
 };

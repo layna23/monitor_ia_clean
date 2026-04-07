@@ -10,7 +10,7 @@ import Utilisateurs from "./pages/Utilisateurs";
 import Roles from "./pages/Roles";
 import AnalyseurSQL from "./pages/AnalyseurSQL";
 import VueGlobaleBD from "./pages/VueGlobaleBD";
-import Dashboard from "./pages/Dashboard";
+import Dashboard from "./Dashboard";
 import ConfigBD from "./pages/ConfigBD";
 import DbTypes from "./pages/DbTypes";
 import TestDB from "./pages/TestDB";

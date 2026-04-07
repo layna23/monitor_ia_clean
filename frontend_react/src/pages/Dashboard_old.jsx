@@ -41,7 +41,12 @@ function matchesAllowedDb(name) {
   const n = String(name || "").trim().toUpperCase();
   return (
     n === "LOCAL_ORCL" ||
+    n === "LOCAL_19C" ||
+    n === "LOCAL_ORCL_3" ||
+    n === "LOCAL_ORCL_22" ||
     n === "ORCL_TEST" ||
+    n === "ORCL_TEST_1" ||
+    n === "ORCL_TEST_2" ||
     n.startsWith("ORCL_TEST") ||
     n === "MY SQL" ||
     n === "MYSQL" ||
@@ -56,6 +61,7 @@ function getDbTypeCode(db) {
       db?.type_code ||
       db?.db_type_name ||
       db?.type_name ||
+      db?.db_type_id ||
       ""
   )
     .trim()
@@ -65,12 +71,59 @@ function getDbTypeCode(db) {
 function isMysqlDb(db) {
   const dbType = getDbTypeCode(db);
   const dbName = String(db?.db_name || "").trim().toUpperCase();
-  return dbType === "MYSQL" || dbName === "MY SQL" || dbName === "MYSQL";
+  const dbTypeId = Number(db?.db_type_id);
+
+  return (
+    dbType === "MYSQL" ||
+    dbName === "MY SQL" ||
+    dbName === "MYSQL" ||
+    dbName.startsWith("MY_SQL") ||
+    dbTypeId === 2
+  );
 }
 
 function isOracleDb(db) {
   const dbType = getDbTypeCode(db);
-  return dbType === "ORACLE" || !dbType;
+  const dbName = String(db?.db_name || "").trim().toUpperCase();
+  const dbTypeId = Number(db?.db_type_id);
+
+  return (
+    dbType === "ORACLE" ||
+    dbTypeId === 1 ||
+    dbName.includes("ORCL") ||
+    dbName.includes("ORACLE") ||
+    dbName.includes("19C")
+  );
+}
+
+function prettifyMetricLabel(code) {
+  const value = String(code || "").trim().toUpperCase();
+
+  const map = {
+    THREADS_CONNECTED: "Threads connectés",
+    THREADS_RUNNING: "Threads actifs",
+    QUESTIONS: "Questions",
+    UPTIME: "Uptime",
+    SLOW_QUERIES: "Requêtes lentes",
+    ACTIVE_SESSIONS: "Sessions actives",
+    SESSION_COUNT: "Nombre de sessions",
+    "TOTAL SESSIONS": "Total sessions",
+    ACTIVE_TRANSACTIONS: "Transactions actives",
+    LOCKED_OBJECTS: "Objets verrouillés",
+    CPU_USED_SESSION: "CPU session",
+    INSTANCE_UPTIME_HOURS: "Uptime instance (h)",
+    DB_STATUS: "Statut base",
+    DB_INFO: "Informations base",
+  };
+
+  return map[value] || value;
+}
+
+function formatCompactNumber(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  return n.toLocaleString("fr-FR");
 }
 
 export default function Dashboard() {
@@ -210,10 +263,15 @@ export default function Dashboard() {
       const aName = String(a.db_name || "").toUpperCase();
       const bName = String(b.db_name || "").toUpperCase();
 
+      if (aName === "LOCAL_19C") return -1;
+      if (bName === "LOCAL_19C") return 1;
+
       if (aName === "LOCAL_ORCL") return -1;
       if (bName === "LOCAL_ORCL") return 1;
+
       if (aName === "MY SQL" || aName === "MYSQL") return 1;
       if (bName === "MY SQL" || bName === "MYSQL") return -1;
+
       return aName.localeCompare(bName);
     });
 
@@ -228,11 +286,17 @@ export default function Dashboard() {
         return prev;
       }
 
+      const local19c = allowedDbs.find(
+        (db) => String(db.db_name || "").toUpperCase() === "LOCAL_19C"
+      );
+      if (local19c) return String(local19c.db_id);
+
       const localOrcl = allowedDbs.find(
         (db) => String(db.db_name || "").toUpperCase() === "LOCAL_ORCL"
       );
+      if (localOrcl) return String(localOrcl.db_id);
 
-      return String(localOrcl?.db_id || allowedDbs[0].db_id);
+      return String(allowedDbs[0].db_id);
     });
   }, [allowedDbs]);
 
@@ -258,7 +322,7 @@ export default function Dashboard() {
 
   const selectedDbName = selectedDb?.db_name || "-";
   const selectedDbIsMysql = isMysqlDb(selectedDb);
-  const selectedDbIsOracle = isOracleDb(selectedDb) && !selectedDbIsMysql;
+  const selectedDbIsOracle = !!selectedDb && !selectedDbIsMysql && isOracleDb(selectedDb);
 
   useEffect(() => {
     async function loadSessions() {
@@ -529,7 +593,7 @@ export default function Dashboard() {
       metric_code: r.metric_code,
       value_number: r.value_number_num,
       db_name: r.db_name,
-      full_label: `${r.metric_code} (${r.db_name})`,
+      full_label: `${prettifyMetricLabel(r.metric_code)} (${r.db_name})`,
     }));
   }, [latestMetrics, dbMap, selectedDbName, targetDbs, selectedDbIsMysql]);
 
@@ -559,7 +623,7 @@ export default function Dashboard() {
       .sort((a, b) => b.value_number_num - a.value_number_num)
       .slice(0, 8)
       .map((r) => ({
-        metric_code: `${r.metric_code} (${r.db_name})`,
+        metric_code: prettifyMetricLabel(r.metric_code),
         value_number: r.value_number_num,
       }));
   }, [filteredMetricValuesSelectedDb]);
@@ -597,9 +661,9 @@ export default function Dashboard() {
     if (selectedDbIsMysql) {
       return [
         { label: "Threads connectés", value: getMetricValue("THREADS_CONNECTED") ?? "-" },
-        { label: "Threads en cours", value: getMetricValue("THREADS_RUNNING") ?? "-" },
+        { label: "Threads actifs", value: getMetricValue("THREADS_RUNNING") ?? "-" },
         { label: "Questions", value: getMetricValue("QUESTIONS") ?? "-" },
-        { label: "Slow queries", value: getMetricValue("SLOW_QUERIES") ?? "-" },
+        { label: "Requêtes lentes", value: getMetricValue("SLOW_QUERIES") ?? "-" },
       ];
     }
 
@@ -614,6 +678,45 @@ export default function Dashboard() {
     ];
   }, [selectedDbLatestRows, selectedDbIsMysql]);
 
+  const mysqlDetailCards = useMemo(() => {
+    function getMetricValue(code) {
+      const found = selectedDbLatestRows.find((r) => r.metric_code === code);
+      if (!found) return null;
+
+      if (found.value_number !== null && found.value_number !== undefined) {
+        const n = Number(found.value_number);
+        return Number.isFinite(n) ? n : null;
+      }
+
+      return found.value_text ?? null;
+    }
+
+    return [
+      { label: "Base", value: selectedDbName || "-" },
+      { label: "Type", value: "MySQL" },
+      { label: "Threads connectés", value: getMetricValue("THREADS_CONNECTED") ?? "-" },
+      { label: "Threads actifs", value: getMetricValue("THREADS_RUNNING") ?? "-" },
+      { label: "Questions", value: getMetricValue("QUESTIONS") ?? "-" },
+      { label: "Uptime", value: getMetricValue("UPTIME") ?? "-" },
+      { label: "Requêtes lentes", value: getMetricValue("SLOW_QUERIES") ?? "-" },
+      { label: "Période", value: selectedPeriod },
+    ];
+  }, [selectedDbLatestRows, selectedDbName, selectedPeriod]);
+
+  const mysqlLatestTableRows = useMemo(() => {
+    return selectedDbLatestRows
+      .map((row) => ({
+        metric_code: row.metric_code,
+        metric_label: prettifyMetricLabel(row.metric_code),
+        value:
+          row.value_number !== null && row.value_number !== undefined
+            ? formatCompactNumber(row.value_number)
+            : row.value_text ?? "-",
+        collected_at: formatDateTime(row.collected_at || row.created_at || row.updated_at),
+      }))
+      .sort((a, b) => a.metric_label.localeCompare(b.metric_label));
+  }, [selectedDbLatestRows]);
+
   const filteredOracleSessionsRows = useMemo(() => {
     const rows = Array.isArray(oracleSessionsData?.sessions) ? oracleSessionsData.sessions : [];
     if (sessionsStatusFilter === "ALL") return rows;
@@ -626,7 +729,7 @@ export default function Dashboard() {
     if (selectedDbIsOracle && selectedMetric === COMBINED_ORACLE_METRIC_KEY) {
       return `${selectedDbName} - ACTIVE_SESSIONS + SESSION_COUNT`;
     }
-    return `${selectedDbName} - ${selectedMetric}`;
+    return `${selectedDbName} - ${prettifyMetricLabel(selectedMetric)}`;
   }, [selectedMetric, selectedDbName, selectedDbIsOracle]);
 
   if (loading) {
@@ -827,7 +930,7 @@ export default function Dashboard() {
                 <Tooltip
                   formatter={(value, name, props) => [
                     value,
-                    props?.payload?.metric_code || "Valeur actuelle",
+                    prettifyMetricLabel(props?.payload?.metric_code || "Valeur actuelle"),
                   ]}
                   labelFormatter={(label) => label}
                   contentStyle={{
@@ -914,7 +1017,8 @@ export default function Dashboard() {
 
           <div style={styles.sectionTitleMain}>Sessions Oracle ouvertes</div>
           <div style={styles.sectionSubMain}>
-            Visualisation détaillée des sessions utilisateur ouvertes sur la base sélectionnée : <strong>{selectedDbName}</strong>.
+            Visualisation détaillée des sessions utilisateur ouvertes sur la base sélectionnée :{" "}
+            <strong>{selectedDbName}</strong>.
           </div>
 
           <SectionCard>
@@ -1087,9 +1191,68 @@ export default function Dashboard() {
       ) : (
         <>
           <div style={{ height: 18 }} />
+
+          <div style={styles.sectionTitleMain}>Analyse MySQL avancée</div>
+          <div style={styles.sectionSubMain}>
+            Monitoring détaillé des performances MySQL pour la base sélectionnée :{" "}
+            <strong>{selectedDbName}</strong>.
+          </div>
+
           <SectionCard>
-            <div style={styles.cardTitle}>Informations spécifiques MySQL</div>
-            <InfoBox text="Les blocs Sessions Oracle et Top SQL Oracle ne s'appliquent pas à MySQL dans cette version du dashboard." />
+            <div style={styles.grid4}>
+              {mysqlDetailCards.map((card) => (
+                <MetricBox key={card.label} label={card.label} value={card.value} />
+              ))}
+            </div>
+          </SectionCard>
+
+          <div style={{ height: 12 }} />
+
+          <SectionCard>
+            <div style={styles.cardTitle}>État MySQL</div>
+            <div style={styles.mysqlHealthGrid}>
+              <HealthCard
+                title="Connexions"
+                value={summaryCards[0]?.value}
+                state={Number(summaryCards[0]?.value) > 100 ? "warning" : "good"}
+                subtitle="Nombre actuel de threads connectés"
+              />
+              <HealthCard
+                title="Activité"
+                value={summaryCards[1]?.value}
+                state={Number(summaryCards[1]?.value) > 20 ? "warning" : "good"}
+                subtitle="Threads en cours d'exécution"
+              />
+              <HealthCard
+                title="Charge requêtes"
+                value={summaryCards[2]?.value}
+                state="info"
+                subtitle="Nombre de questions observées"
+              />
+              <HealthCard
+                title="Slow queries"
+                value={summaryCards[3]?.value}
+                state={Number(summaryCards[3]?.value) > 0 ? "warning" : "good"}
+                subtitle="Requêtes lentes détectées"
+              />
+            </div>
+          </SectionCard>
+
+          <div style={{ height: 12 }} />
+
+          <SectionCard>
+            <div style={styles.cardTitle}>Dernières métriques MySQL</div>
+            {mysqlLatestTableRows.length ? (
+              <CollapsibleTable
+                title="Tableau des métriques MySQL"
+                count={mysqlLatestTableRows.length}
+                defaultOpen={true}
+              >
+                <MysqlMetricTable rows={mysqlLatestTableRows} />
+              </CollapsibleTable>
+            ) : (
+              <InfoBox text="Aucune métrique MySQL disponible." />
+            )}
           </SectionCard>
         </>
       )}
@@ -1145,6 +1308,63 @@ function MetricBox({ label, value }) {
   );
 }
 
+function HealthCard({ title, value, subtitle, state = "info" }) {
+  const palette = {
+    good: {
+      background: "#ecfdf5",
+      border: "#a7f3d0",
+      value: "#065f46",
+      badgeBg: "#d1fae5",
+      badgeColor: "#065f46",
+      badgeText: "Stable",
+    },
+    warning: {
+      background: "#fff7ed",
+      border: "#fdba74",
+      value: "#9a3412",
+      badgeBg: "#fed7aa",
+      badgeColor: "#9a3412",
+      badgeText: "À surveiller",
+    },
+    info: {
+      background: "#eff6ff",
+      border: "#bfdbfe",
+      value: "#1d4ed8",
+      badgeBg: "#dbeafe",
+      badgeColor: "#1d4ed8",
+      badgeText: "Info",
+    },
+  };
+
+  const p = palette[state] || palette.info;
+
+  return (
+    <div
+      style={{
+        background: p.background,
+        border: `1px solid ${p.border}`,
+        borderRadius: 16,
+        padding: 16,
+      }}
+    >
+      <div style={styles.healthCardTop}>
+        <div style={styles.healthCardTitle}>{title}</div>
+        <span
+          style={{
+            ...styles.healthBadge,
+            background: p.badgeBg,
+            color: p.badgeColor,
+          }}
+        >
+          {p.badgeText}
+        </span>
+      </div>
+      <div style={{ ...styles.healthCardValue, color: p.value }}>{String(value ?? "-")}</div>
+      <div style={styles.healthCardSubtitle}>{subtitle}</div>
+    </div>
+  );
+}
+
 function ErrorBox({ text }) {
   return <div style={styles.errorBox}>{text}</div>;
 }
@@ -1191,7 +1411,7 @@ function MetricSelectList({ options, selected, onChange, specialLabelMap = {} })
               ...(active ? styles.multiOptionActive : {}),
             }}
           >
-            {specialLabelMap[option] || option}
+            {specialLabelMap[option] || prettifyMetricLabel(option)}
           </button>
         );
       })}
@@ -1385,6 +1605,33 @@ function SessionTable({ rows }) {
               </tr>
             );
           })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function MysqlMetricTable({ rows }) {
+  return (
+    <div style={styles.tableWrap}>
+      <table style={styles.table}>
+        <thead>
+          <tr>
+            <th style={styles.th}>Code</th>
+            <th style={styles.th}>Libellé</th>
+            <th style={styles.th}>Valeur</th>
+            <th style={styles.th}>Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, idx) => (
+            <tr key={`${row.metric_code}-${idx}`} style={idx % 2 === 0 ? styles.rowEven : styles.rowOdd}>
+              <td style={styles.td}>{row.metric_code}</td>
+              <td style={styles.td}>{row.metric_label}</td>
+              <td style={styles.td}>{row.value}</td>
+              <td style={styles.td}>{row.collected_at}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
@@ -1798,5 +2045,39 @@ const styles = {
     fontSize: 12,
     fontWeight: 800,
     minWidth: 88,
+  },
+  mysqlHealthGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr 1fr 1fr",
+    gap: 12,
+  },
+  healthCardTop: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 10,
+  },
+  healthCardTitle: {
+    fontSize: 13,
+    fontWeight: 800,
+    color: "#0f172a",
+  },
+  healthBadge: {
+    display: "inline-block",
+    padding: "0.22rem 0.55rem",
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: 800,
+  },
+  healthCardValue: {
+    fontSize: 24,
+    fontWeight: 900,
+    marginBottom: 6,
+  },
+  healthCardSubtitle: {
+    fontSize: 12,
+    color: "#64748b",
+    lineHeight: 1.4,
   },
 };

@@ -93,30 +93,6 @@ export default function VueGlobaleBD() {
     };
   }
 
-  function classifySqlSource(sqlQuery) {
-    if (!sqlQuery) return "none";
-    const sqlUpper = String(sqlQuery).toUpperCase();
-
-    const oracleMarkers = ["V$", "DBA_", "ALL_", "USER_", "GV$", "DUAL"];
-    const internalMarkers = [
-      "METRIC_RUNS",
-      "METRIC_VALUES",
-      "METRIC_DEFS",
-      "TARGET_DBS",
-      "ALERTS",
-      "DBMON.",
-    ];
-
-    if (oracleMarkers.some((m) => sqlUpper.includes(m))) return "oracle";
-    if (internalMarkers.some((m) => sqlUpper.includes(m))) return "dbmon";
-    return "other";
-  }
-
-  function getBackendKpiMeta(data, key) {
-    const metaRoot = data?.indicator_meta || data?.kpi_meta || {};
-    return typeof metaRoot === "object" && metaRoot ? metaRoot[key] || {} : {};
-  }
-
   function buildMetricInfo(metricObj, fallbackDefinition, fallbackCalculation) {
     if (!metricObj) {
       return {
@@ -188,6 +164,7 @@ export default function VueGlobaleBD() {
 
     async function loadOverview() {
       setLoadingOverview(true);
+      setOpenedInfoKey(null);
       const res = await apiGet(`/target-dbs/${selectedDbId}/overview`, null);
       setOverview(res);
       setLoadingOverview(false);
@@ -199,6 +176,10 @@ export default function VueGlobaleBD() {
   const latestMetrics = useMemo(() => {
     return Array.isArray(overview?.latest_metrics) ? overview.latest_metrics : [];
   }, [overview]);
+
+  const dbTypeName = String(overview?.db_type_name || "").toUpperCase();
+  const isMySQL = dbTypeName === "MYSQL";
+  const isOracle = dbTypeName === "ORACLE";
 
   const alertsDb = useMemo(() => {
     return alertsAll.filter((a) => Number(a.db_id) === Number(selectedDbId));
@@ -284,22 +265,26 @@ export default function VueGlobaleBD() {
   const activeTxMetric = getMetricObj(latestMetrics, "ACTIVE_TRANSACTIONS");
   const cpuMetric = getMetricObj(latestMetrics, "CPU_USED_SESSION");
   const uptimeMetric = getMetricObj(latestMetrics, "INSTANCE_UPTIME_HOURS");
+  const threadsConnectedMetric = getMetricObj(latestMetrics, "THREADS_CONNECTED");
+  const threadsRunningMetric = getMetricObj(latestMetrics, "THREADS_RUNNING");
 
   const dbStatusValue = getMetricValue(latestMetrics, "DB_STATUS");
   const activeSessionsValue = getMetricValue(latestMetrics, "ACTIVE_SESSIONS");
   const activeTxValue = getMetricValue(latestMetrics, "ACTIVE_TRANSACTIONS");
   const cpuValue = getMetricValue(latestMetrics, "CPU_USED_SESSION");
   const uptimeValue = getMetricValue(latestMetrics, "INSTANCE_UPTIME_HOURS");
+  const threadsConnectedValue = getMetricValue(latestMetrics, "THREADS_CONNECTED");
+  const threadsRunningValue = getMetricValue(latestMetrics, "THREADS_RUNNING");
 
   const dbStatusInfo = buildMetricInfo(
     dbStatusMetric,
-    "État courant de la base Oracle.",
+    "État courant de la base.",
     "Valeur directe issue de la métrique DB_STATUS."
   );
 
   const activeSessionsInfo = buildMetricInfo(
     activeSessionsMetric,
-    "Nombre de sessions actives actuellement sur la base.",
+    "Nombre de sessions actives actuellement sur la base Oracle.",
     "Comptage des sessions Oracle actives."
   );
 
@@ -321,8 +306,93 @@ export default function VueGlobaleBD() {
     "Valeur directe issue de la métrique INSTANCE_UPTIME_HOURS."
   );
 
+  const threadsConnectedInfo = buildMetricInfo(
+    threadsConnectedMetric,
+    "Nombre total de threads actuellement connectés sur MySQL.",
+    "Valeur issue de performance_schema.global_status pour Threads_connected."
+  );
+
+  const threadsRunningInfo = buildMetricInfo(
+    threadsRunningMetric,
+    "Nombre de threads MySQL actuellement en cours d'exécution.",
+    "Valeur issue de performance_schema.global_status pour Threads_running."
+  );
+
+  const kpiCards = useMemo(() => {
+    if (isMySQL) {
+      return [
+        {
+          key: "threads_connected",
+          label: "THREADS CONNECTED",
+          value: String(threadsConnectedValue.value),
+          accent:
+            String(threadsConnectedValue.severity).toUpperCase() === "CRITICAL"
+              ? COLORS.red
+              : COLORS.blue,
+        },
+        {
+          key: "threads_running",
+          label: "THREADS RUNNING",
+          value: String(threadsRunningValue.value),
+          accent:
+            String(threadsRunningValue.severity).toUpperCase() === "CRITICAL"
+              ? COLORS.red
+              : COLORS.green,
+        },
+      ];
+    }
+
+    return [
+      {
+        key: "db_status",
+        label: "DB STATUS",
+        value: String(dbStatusValue.value),
+        accent: COLORS.blue,
+      },
+      {
+        key: "active_sessions",
+        label: "ACTIVE SESSIONS",
+        value: String(activeSessionsValue.value),
+        accent:
+          String(activeSessionsValue.severity).toUpperCase() === "CRITICAL"
+            ? COLORS.red
+            : COLORS.green,
+      },
+      {
+        key: "active_transactions",
+        label: "ACTIVE TRANSACTIONS",
+        value: String(activeTxValue.value),
+        accent:
+          String(activeTxValue.severity).toUpperCase() === "WARNING"
+            ? COLORS.orange
+            : COLORS.blue,
+      },
+      {
+        key: "cpu_used_session",
+        label: "CPU USED SESSION",
+        value: String(cpuValue.value),
+        accent: COLORS.purple,
+      },
+      {
+        key: "uptime_h",
+        label: "UPTIME (H)",
+        value: String(uptimeValue.value),
+        accent: COLORS.cyan,
+      },
+    ];
+  }, [
+    isMySQL,
+    dbStatusValue,
+    activeSessionsValue,
+    activeTxValue,
+    cpuValue,
+    uptimeValue,
+    threadsConnectedValue,
+    threadsRunningValue,
+  ]);
+
   const selectedInfoBlock = useMemo(() => {
-    const map = {
+    const oracleMap = {
       db_status: { title: "DB STATUS", info: dbStatusInfo },
       active_sessions: { title: "ACTIVE SESSIONS", info: activeSessionsInfo },
       active_transactions: { title: "ACTIVE TRANSACTIONS", info: activeTxInfo },
@@ -330,14 +400,29 @@ export default function VueGlobaleBD() {
       uptime_h: { title: "UPTIME (H)", info: uptimeInfo },
     };
 
+    const mysqlMap = {
+      threads_connected: {
+        title: "THREADS CONNECTED",
+        info: threadsConnectedInfo,
+      },
+      threads_running: {
+        title: "THREADS RUNNING",
+        info: threadsRunningInfo,
+      },
+    };
+
+    const map = isMySQL ? mysqlMap : oracleMap;
     return openedInfoKey ? map[openedInfoKey] || null : null;
   }, [
     openedInfoKey,
+    isMySQL,
     dbStatusInfo,
     activeSessionsInfo,
     activeTxInfo,
     cpuInfo,
     uptimeInfo,
+    threadsConnectedInfo,
+    threadsRunningInfo,
   ]);
 
   if (loading) {
@@ -397,6 +482,9 @@ export default function VueGlobaleBD() {
                   <span style={styles.metaChip}>
                     <b style={styles.metaChipLabel}>SID</b> {overview.sid || "-"}
                   </span>
+                  <span style={styles.metaChip}>
+                    <b style={styles.metaChipLabel}>Type</b> {overview.db_type_name || "-"}
+                  </span>
                 </div>
               </div>
 
@@ -415,55 +503,23 @@ export default function VueGlobaleBD() {
             </div>
           </div>
 
-          <div style={styles.kpiGridFive}>
-            <KpiCard
-              label="DB STATUS"
-              value={String(dbStatusValue.value)}
-              accent={COLORS.blue}
-              clickable
-              active={openedInfoKey === "db_status"}
-              onClick={() => handleInfoToggle("db_status")}
-            />
-            <KpiCard
-              label="ACTIVE SESSIONS"
-              value={String(activeSessionsValue.value)}
-              accent={
-                String(activeSessionsValue.severity).toUpperCase() === "CRITICAL"
-                  ? COLORS.red
-                  : COLORS.green
-              }
-              clickable
-              active={openedInfoKey === "active_sessions"}
-              onClick={() => handleInfoToggle("active_sessions")}
-            />
-            <KpiCard
-              label="ACTIVE TRANSACTIONS"
-              value={String(activeTxValue.value)}
-              accent={
-                String(activeTxValue.severity).toUpperCase() === "WARNING"
-                  ? COLORS.orange
-                  : COLORS.blue
-              }
-              clickable
-              active={openedInfoKey === "active_transactions"}
-              onClick={() => handleInfoToggle("active_transactions")}
-            />
-            <KpiCard
-              label="CPU USED SESSION"
-              value={String(cpuValue.value)}
-              accent={COLORS.purple}
-              clickable
-              active={openedInfoKey === "cpu_used_session"}
-              onClick={() => handleInfoToggle("cpu_used_session")}
-            />
-            <KpiCard
-              label="UPTIME (H)"
-              value={String(uptimeValue.value)}
-              accent={COLORS.cyan}
-              clickable
-              active={openedInfoKey === "uptime_h"}
-              onClick={() => handleInfoToggle("uptime_h")}
-            />
+          <div
+            style={{
+              ...styles.kpiGridDynamic,
+              gridTemplateColumns: isMySQL ? "repeat(2, 1fr)" : "repeat(5, 1fr)",
+            }}
+          >
+            {kpiCards.map((card) => (
+              <KpiCard
+                key={card.key}
+                label={card.label}
+                value={card.value}
+                accent={card.accent}
+                clickable
+                active={openedInfoKey === card.key}
+                onClick={() => handleInfoToggle(card.key)}
+              />
+            ))}
           </div>
 
           <div style={{ height: 12 }} />
@@ -812,6 +868,9 @@ function getSqlTitleLocal(sqlQuery) {
   ) {
     return "Requête SQL interne DBMON (base de monitoring)";
   }
+  if (sqlUpper.includes("PERFORMANCE_SCHEMA") || sqlUpper.includes("THREADS_")) {
+    return "Requête SQL MySQL (collecte réelle)";
+  }
   return "Requête SQL utilisée";
 }
 
@@ -827,7 +886,10 @@ function getSqlHintLocal(sqlQuery) {
       sqlUpper.includes(m)
     )
   ) {
-    return "Cette requête interroge la base interne DBMON, pas la base Oracle cible.";
+    return "Cette requête interroge la base interne DBMON, pas la base cible.";
+  }
+  if (sqlUpper.includes("PERFORMANCE_SCHEMA") || sqlUpper.includes("THREADS_")) {
+    return "Cette requête est exécutée sur la base MySQL cible surveillée.";
   }
   return "Cette requête est utilisée par l'application pour calculer ou présenter l'indicateur.";
 }
@@ -921,9 +983,8 @@ const styles = {
     letterSpacing: "0.06em",
     border: "1px solid",
   },
-  kpiGridFive: {
+  kpiGridDynamic: {
     display: "grid",
-    gridTemplateColumns: "repeat(5, 1fr)",
     gap: 16,
     marginBottom: 16,
   },

@@ -74,25 +74,29 @@ export default function DetailBase() {
     "CPU_USED_SESSION",
     "CPU_USED_BY_SESSION",
     "SESSION_UPTIME_HOURS",
+    "THREADS_CONNECTED",
+    "THREADS_RUNNING",
+  ];
+
+  const allAllowedCodes = [
+    "ACTIVE_SESSIONS",
+    "SESSION_COUNT",
+    "ACTIVE_TRANSACTIONS",
+    "DB_STATUS",
+    "CPU_USED_SESSION",
+    "CPU_USED_BY_SESSION",
+    "INSTANCE_UPTIME_HOURS",
+    "SESSION_UPTIME_HOURS",
+    "LOCKED_OBJECTS",
+    "TOTAL_SESSIONS",
+    "THREADS_CONNECTED",
+    "THREADS_RUNNING",
   ];
 
   const visibleMetrics = useMemo(() => {
-    const allowedCodes = [
-      "ACTIVE_SESSIONS",
-      "SESSION_COUNT",
-      "ACTIVE_TRANSACTIONS",
-      "DB_STATUS",
-      "CPU_USED_SESSION",
-      "CPU_USED_BY_SESSION",
-      "INSTANCE_UPTIME_HOURS",
-      "SESSION_UPTIME_HOURS",
-      "LOCKED_OBJECTS",
-      "TOTAL_SESSIONS",
-    ];
-
     return latestMetrics.filter((metric) => {
       const code = String(metric.metric_code || "").toUpperCase();
-      return allowedCodes.includes(code);
+      return allAllowedCodes.includes(code);
     });
   }, [latestMetrics]);
 
@@ -116,20 +120,7 @@ export default function DetailBase() {
     history.forEach((row) => {
       const code = String(row.metric_code || "").toUpperCase();
 
-      const allowedCodes = [
-        "ACTIVE_SESSIONS",
-        "SESSION_COUNT",
-        "ACTIVE_TRANSACTIONS",
-        "DB_STATUS",
-        "CPU_USED_SESSION",
-        "CPU_USED_BY_SESSION",
-        "INSTANCE_UPTIME_HOURS",
-        "SESSION_UPTIME_HOURS",
-        "LOCKED_OBJECTS",
-        "TOTAL_SESSIONS",
-      ];
-
-      if (!allowedCodes.includes(code)) return;
+      if (!allAllowedCodes.includes(code)) return;
 
       if (!grouped[code]) grouped[code] = [];
 
@@ -152,22 +143,10 @@ export default function DetailBase() {
   }, [history]);
 
   const chartMetrics = useMemo(() => {
-    const allowedCodes = [
-      "ACTIVE_SESSIONS",
-      "SESSION_COUNT",
-      "ACTIVE_TRANSACTIONS",
-      "CPU_USED_SESSION",
-      "CPU_USED_BY_SESSION",
-      "INSTANCE_UPTIME_HOURS",
-      "SESSION_UPTIME_HOURS",
-      "LOCKED_OBJECTS",
-      "TOTAL_SESSIONS",
-    ];
-
     return latestMetrics
       .filter((metric) => {
         const code = String(metric.metric_code || "").toUpperCase();
-        return allowedCodes.includes(code) && (historyByMetric[code]?.length || 0) > 0;
+        return allAllowedCodes.includes(code) && (historyByMetric[code]?.length || 0) > 0;
       })
       .sort((a, b) =>
         String(a.metric_code || "").localeCompare(String(b.metric_code || ""))
@@ -303,7 +282,7 @@ export default function DetailBase() {
                 : "Non disponible"
             }
           />
-          <InfoCard label="Type" value="Oracle" />
+          <InfoCard label="Type" value={overview.db_type_name || "—"} />
           <InfoCard label="Base affichée" value={overview.db_name || "—"} />
         </div>
       </CollapsibleSection>

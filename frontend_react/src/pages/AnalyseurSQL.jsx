@@ -83,19 +83,17 @@ export default function AnalyseurSQL() {
   async function loadData() {
     try {
       setLoading(true);
-      const [dbs, scripts] = await Promise.all([
-        apiGet("/target-dbs/", []),
-        apiGet("/sql-scripts/", []),
-      ]);
 
+      const dbs = await apiGet("/target-dbs/", []);
       const dbList = Array.isArray(dbs) ? dbs : [];
-      const scriptList = Array.isArray(scripts) ? scripts : [];
 
       setTargetDbs(dbList);
-      setSqlScripts(scriptList);
+      setSqlScripts([]);
 
-      if (dbList.length > 0 && !selectedDbId) {
-        setSelectedDbId(String(dbList[0].db_id));
+      if (dbList.length > 0) {
+        setSelectedDbId((prev) =>
+          prev ? prev : String(dbList[0].db_id)
+        );
       }
     } catch {
       setMessage({ type: "error", text: "Erreur lors du chargement des données." });
@@ -108,6 +106,67 @@ export default function AnalyseurSQL() {
     loadData();
   }, []);
 
+  const selectedDb = useMemo(() => {
+    return targetDbs.find((d) => String(d.db_id) === String(selectedDbId)) || null;
+  }, [targetDbs, selectedDbId]);
+
+  const selectedDbType = useMemo(() => {
+    if (!selectedDb) return "";
+
+    const normalize = (value) =>
+      String(value || "")
+        .toUpperCase()
+        .replace(/\s+/g, "")
+        .replace(/[^A-Z0-9]/g, "");
+
+    const candidates = [
+      selectedDb.db_type_name,
+      selectedDb.db_type,
+      selectedDb.name,
+      selectedDb.db_name,
+      selectedDb.service_name,
+      selectedDb.sid,
+    ].map(normalize);
+
+    const joined = candidates.join(" ");
+
+    if (joined.includes("MYSQL")) return "MYSQL";
+    if (joined.includes("ORACLE") || joined.includes("ORCL")) return "ORACLE";
+
+    return "";
+  }, [selectedDb]);
+
+  useEffect(() => {
+    if (!selectedDbType) {
+      setSqlScripts([]);
+      return;
+    }
+
+    async function loadScriptsByDb() {
+      try {
+        setLoading(true);
+
+        const params = new URLSearchParams();
+        params.append("db_type", selectedDbType);
+        params.append("is_active", "1");
+
+        const scripts = await apiGet(`/sql-scripts/?${params.toString()}`, []);
+        setSqlScripts(Array.isArray(scripts) ? scripts : []);
+      } catch (e) {
+        console.error(e);
+        setSqlScripts([]);
+        setMessage({
+          type: "error",
+          text: "Erreur lors du chargement des scripts.",
+        });
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadScriptsByDb();
+  }, [selectedDbType]);
+
   const categories = useMemo(() => {
     const fromDb = sqlScripts
       .map((s) => String(s.category || "").toUpperCase())
@@ -116,23 +175,34 @@ export default function AnalyseurSQL() {
   }, [sqlScripts]);
 
   const scriptsFiltered = useMemo(() => {
-    if (selectedCategory === "Toutes") return sqlScripts;
-    return sqlScripts.filter(
-      (s) => String(s.category || "").toUpperCase() === selectedCategory
-    );
-  }, [sqlScripts, selectedCategory]);
+    let list = [...sqlScripts];
 
-  const selectedDb = useMemo(() => {
-    return targetDbs.find((d) => String(d.db_id) === String(selectedDbId)) || null;
-  }, [targetDbs, selectedDbId]);
+    if (selectedCategory !== "Toutes") {
+      list = list.filter(
+        (s) => String(s.category || "").toUpperCase() === selectedCategory
+      );
+    }
+
+    return list;
+  }, [sqlScripts, selectedCategory]);
 
   const selectedScript = useMemo(() => {
     return scriptsFiltered.find((s) => String(s.script_id) === String(selectedScriptId)) || null;
   }, [scriptsFiltered, selectedScriptId]);
 
   useEffect(() => {
+    setSelectedScriptId("");
+    setSqlEditor("");
+    setExplainResult(null);
+    setExecuteResult(null);
+    setShowForm(false);
+    setEditMode(false);
+  }, [selectedDbId]);
+
+  useEffect(() => {
     if (!scriptsFiltered.length) {
       setSelectedScriptId("");
+      setSqlEditor("");
       return;
     }
 
@@ -148,8 +218,10 @@ export default function AnalyseurSQL() {
   useEffect(() => {
     if (selectedScript) {
       setSqlEditor(selectedScript.sql_content || "");
+    } else {
+      setSqlEditor("");
     }
-  }, [selectedScriptId]);
+  }, [selectedScript]);
 
   function normalizeCategory(value) {
     const v = String(value || "").trim().toUpperCase();
@@ -158,11 +230,11 @@ export default function AnalyseurSQL() {
 
   function costBadge(level) {
     const cfg = {
-      LOW: { bg: "#f0fdf4", border: "#86efac", color: "#166534", label: "✅ Faible" },
-      MEDIUM: { bg: "#fffbeb", border: "#fcd34d", color: "#92400e", label: "⚠️ Moyen" },
-      HIGH: { bg: "#fff7ed", border: "#fb923c", color: "#9a3412", label: "🔶 Élevé" },
-      CRITICAL: { bg: "#fff1f2", border: "#fb7185", color: "#9f1239", label: "🔴 Critique" },
-      UNKNOWN: { bg: "#f8fafc", border: "#cbd5e1", color: "#475569", label: "❓ Inconnu" },
+      LOW: { bg: "#f0fdf4", border: "#86efac", color: "#166534", label: "Faible" },
+      MEDIUM: { bg: "#fffbeb", border: "#fcd34d", color: "#92400e", label: "Moyen" },
+      HIGH: { bg: "#fff7ed", border: "#fb923c", color: "#9a3412", label: "Élevé" },
+      CRITICAL: { bg: "#fff1f2", border: "#fb7185", color: "#9f1239", label: "Critique" },
+      UNKNOWN: { bg: "#f8fafc", border: "#cbd5e1", color: "#475569", label: "Inconnu" },
     };
     const c = cfg[String(level || "").toUpperCase()] || cfg.UNKNOWN;
     return (
@@ -275,14 +347,21 @@ export default function AnalyseurSQL() {
       } else {
         await apiPost("/sql-scripts/", {
           ...payload,
-          db_type: "ORACLE",
+          db_type: selectedDbType || "ORACLE",
         });
         setMessage({ type: "success", text: "Script ajouté avec succès." });
       }
 
       setShowForm(false);
       setEditMode(false);
-      await loadData();
+
+      if (selectedDbType) {
+        const params = new URLSearchParams();
+        params.append("db_type", selectedDbType);
+        params.append("is_active", "1");
+        const scripts = await apiGet(`/sql-scripts/?${params.toString()}`, []);
+        setSqlScripts(Array.isArray(scripts) ? scripts : []);
+      }
     } catch {
       setMessage({ type: "error", text: "Erreur lors de l'enregistrement du script." });
     }
@@ -298,7 +377,14 @@ export default function AnalyseurSQL() {
       setShowForm(false);
       setEditMode(false);
       setMessage({ type: "success", text: "Script supprimé avec succès." });
-      await loadData();
+
+      if (selectedDbType) {
+        const params = new URLSearchParams();
+        params.append("db_type", selectedDbType);
+        params.append("is_active", "1");
+        const scripts = await apiGet(`/sql-scripts/?${params.toString()}`, []);
+        setSqlScripts(Array.isArray(scripts) ? scripts : []);
+      }
     } catch {
       setMessage({ type: "error", text: "Erreur lors de la suppression." });
     }
@@ -324,7 +410,7 @@ export default function AnalyseurSQL() {
       } else {
         setMessage({
           type: "error",
-          text: `Erreur plan : ${result?.detail || "Pas de réponse"}`,
+          text: `Erreur plan : ${result?.detail || result?.message || "Pas de réponse"}`,
         });
       }
     } catch {
@@ -342,7 +428,7 @@ export default function AnalyseurSQL() {
       if (!explainResult) {
         setMessage({
           type: "warning",
-          text: "⚠️ Recommandé : analysez le plan avant d'exécuter.",
+          text: "Recommandé : analysez le plan avant d'exécuter.",
         });
       }
 
@@ -426,7 +512,7 @@ export default function AnalyseurSQL() {
       ) : null}
 
       <SectionCard>
-        <SectionTitle text="⚙️ SÉLECTION BASE & SCRIPT" />
+        <SectionTitle text="SÉLECTION BASE & SCRIPT" />
 
         <div style={styles.topGrid}>
           <select
@@ -474,7 +560,7 @@ export default function AnalyseurSQL() {
           )}
 
           <button style={styles.primaryButton} onClick={startNewForm}>
-            ➕ Nouveau
+            Nouveau
           </button>
         </div>
       </SectionCard>
@@ -484,7 +570,7 @@ export default function AnalyseurSQL() {
           <div style={{ height: 16 }} />
           <SectionCard>
             <SectionTitle
-              text={editMode ? "✏️ MODIFIER LE SCRIPT SQL" : "➕ AJOUTER UN SCRIPT SQL"}
+              text={editMode ? "MODIFIER LE SCRIPT SQL" : "AJOUTER UN SCRIPT SQL"}
             />
 
             <div style={styles.formGrid2}>
@@ -558,10 +644,10 @@ export default function AnalyseurSQL() {
 
             <div style={styles.buttonRow}>
               <button style={styles.primaryButton} onClick={handleSaveScript}>
-                {editMode ? "💾 Enregistrer les modifications" : "💾 Enregistrer"}
+                {editMode ? "Enregistrer les modifications" : "Enregistrer"}
               </button>
               <button style={styles.secondaryButton} onClick={cancelForm}>
-                ❌ Annuler
+                Annuler
               </button>
             </div>
           </SectionCard>
@@ -572,7 +658,7 @@ export default function AnalyseurSQL() {
 
       {selectedScript ? (
         <SectionCard>
-          <SectionTitle text="📜 DÉTAIL DU SCRIPT" />
+          <SectionTitle text="DÉTAIL DU SCRIPT" />
 
           <div style={styles.detailGrid}>
             <div>
@@ -581,6 +667,7 @@ export default function AnalyseurSQL() {
               <div style={styles.scriptMeta}>
                 {categoryBadge(selectedScript.category)}
                 <span style={styles.monoTag}>#{selectedScript.script_id}</span>
+                <span style={styles.monoTag}>{selectedDbType || "TYPE INCONNU"}</span>
               </div>
             </div>
 
@@ -606,25 +693,25 @@ export default function AnalyseurSQL() {
 
           <div style={styles.actionRow5}>
             <button style={styles.primaryButton} onClick={handleExplain}>
-              🔍 Analyser le plan
+              Analyser le plan
             </button>
             <button style={styles.secondaryButton} onClick={handleExecute}>
-              ▶ Lancer l'exécution
+              Lancer l'exécution
             </button>
             <button style={styles.secondaryButton} onClick={resetEditor}>
-              🔄 Réinitialiser
+              Réinitialiser
             </button>
             <button
               style={styles.secondaryButton}
               onClick={() => loadScriptIntoForm(selectedScript)}
             >
-              ✏️ Modifier
+              Modifier
             </button>
             <button
               style={styles.dangerButton}
               onClick={() => setDeleteTargetId(selectedScript.script_id)}
             >
-              🗑️ Supprimer
+              Supprimer
             </button>
           </div>
         </SectionCard>
@@ -633,7 +720,7 @@ export default function AnalyseurSQL() {
           <EmptyState
             icon="📄"
             title="Aucun script disponible"
-            subtitle="Aucun script disponible pour cette catégorie."
+            subtitle="Aucun script disponible pour cette base et cette catégorie."
           />
         </SectionCard>
       )}
@@ -642,26 +729,24 @@ export default function AnalyseurSQL() {
         <>
           <div style={{ height: 16 }} />
           <SectionCard>
-            <SectionTitle text="🗑️ CONFIRMATION DE SUPPRESSION" />
+            <SectionTitle text="CONFIRMATION DE SUPPRESSION" />
             <div style={styles.deleteConfirm}>
-              ⚠️ Vous êtes sur le point de supprimer le script :{" "}
+              Vous êtes sur le point de supprimer le script :{" "}
               <strong>
                 {sqlScripts.find((s) => s.script_id === deleteTargetId)?.script_name || ""}
               </strong>{" "}
-              <span style={styles.monoTag}>
-                (ID #{deleteTargetId})
-              </span>
+              <span style={styles.monoTag}>(ID #{deleteTargetId})</span>
             </div>
 
             <div style={styles.buttonRow}>
               <button style={styles.dangerButton} onClick={handleDeleteScript}>
-                ✅ Oui, supprimer
+                Oui, supprimer
               </button>
               <button
                 style={styles.secondaryButton}
                 onClick={() => setDeleteTargetId(null)}
               >
-                ❌ Annuler suppression
+                Annuler suppression
               </button>
             </div>
           </SectionCard>
@@ -672,7 +757,7 @@ export default function AnalyseurSQL() {
         <>
           <div style={{ height: 16 }} />
           <SectionCard>
-            <SectionTitle text="📊 PLAN D'EXÉCUTION" />
+            <SectionTitle text="PLAN D'EXÉCUTION" />
 
             <div style={styles.kpiGrid3}>
               <StatCard label="COÛT TOTAL" value={String(explainResult.total_cost ?? 0)} />
@@ -714,7 +799,6 @@ export default function AnalyseurSQL() {
 
             <div style={styles.aiPanel}>
               <div style={styles.aiHeader}>
-                <span style={{ fontSize: 20 }}>🤖</span>
                 <span style={styles.aiTitle}>ANALYSE IA — DIAGNOSTIC AUTOMATIQUE</span>
                 <span style={styles.aiBadge}>Bientôt</span>
               </div>
@@ -736,12 +820,12 @@ export default function AnalyseurSQL() {
         <>
           <div style={{ height: 16 }} />
           <SectionCard>
-            <SectionTitle text="📋 RÉSULTATS DE L'EXÉCUTION" />
+            <SectionTitle text="RÉSULTATS DE L'EXÉCUTION" />
 
             {executeResult.success ? (
               <>
                 <div style={styles.successBanner}>
-                  ✅ Exécution réussie · {executeResult.row_count || 0} ligne(s) retournée(s) · ⏱{" "}
+                  Exécution réussie · {executeResult.row_count || 0} ligne(s) retournée(s) ·{" "}
                   {executeResult.duration_ms || 0} ms
                 </div>
 
@@ -765,7 +849,7 @@ export default function AnalyseurSQL() {
               </>
             ) : (
               <>
-                <div style={styles.errorBanner}>❌ Exécution échouée</div>
+                <div style={styles.errorBanner}>Exécution échouée</div>
                 <pre style={styles.codeBlock}>
                   {String(executeResult.detail || JSON.stringify(executeResult, null, 2))}
                 </pre>
@@ -778,13 +862,13 @@ export default function AnalyseurSQL() {
       <div style={{ height: 16 }} />
 
       <SectionCard>
-        <SectionTitle text="📚 BIBLIOTHÈQUE DES SCRIPTS" />
+        <SectionTitle text="BIBLIOTHÈQUE DES SCRIPTS" />
 
         <div style={styles.libraryFilters}>
           <input
             style={styles.input}
             value={libSearch}
-            placeholder="🔎 Rechercher un script par nom, description ou contenu…"
+            placeholder="Rechercher un script par nom, description ou contenu…"
             onChange={(e) => setLibSearch(e.target.value)}
           />
           <select

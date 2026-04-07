@@ -60,7 +60,6 @@ class TargetDBLatestMetricOut(BaseModel):
     severity: Optional[str] = None
     collected_at: Optional[datetime] = None
 
-    # ✅ nouveaux champs utiles pour la vue globale
     sql_query: Optional[str] = None
     warn_threshold: Optional[float] = None
     crit_threshold: Optional[float] = None
@@ -72,6 +71,7 @@ class TargetDBOverviewOut(BaseModel):
     db_id: int
     db_name: str
     db_type_id: int
+    db_type_name: Optional[str] = None
     host: str
     port: int
     service_name: Optional[str] = None
