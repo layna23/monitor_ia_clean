@@ -37,14 +37,7 @@ DB_CATEGORIES = {
         "AUTRES": {
             "TEST_METRIC_02",
         },
-    },
-    "MYSQL": {
-        "THREADS": {
-            "THREADS_RUNNING",
-            "THREADS_CONNECTED",
-        },
-        "AUTRES": set(),
-    },
+    }
 }
 
 
@@ -283,21 +276,39 @@ def collect_oracle_autres_task():
     return results
 
 
-@task(name="collecte mysql threads")
-def collect_mysql_threads_task():
+@task(name="collecte oracle schema sessions")
+def collect_oracle_schema_sessions_task():
     logger = get_run_logger()
-    logger.info("[TASK-START] MySQL Threads")
-    results = collect_db_category("MY SQL", "MYSQL", "THREADS")
-    logger.info("[TASK-END] MySQL Threads | results=%s", len(results))
+    logger.info("[TASK-START] Oracle Schema Sessions")
+    results = collect_db_category("LOCAL_19C_SCHEMA", "ORACLE", "SESSIONS")
+    logger.info("[TASK-END] Oracle Schema Sessions | results=%s", len(results))
     return results
 
 
-@task(name="collecte mysql autres")
-def collect_mysql_autres_task():
+@task(name="collecte oracle schema statut")
+def collect_oracle_schema_statut_task():
     logger = get_run_logger()
-    logger.info("[TASK-START] MySQL Autres")
-    results = collect_db_category("MY SQL", "MYSQL", "AUTRES")
-    logger.info("[TASK-END] MySQL Autres | results=%s", len(results))
+    logger.info("[TASK-START] Oracle Schema Statut")
+    results = collect_db_category("LOCAL_19C_SCHEMA", "ORACLE", "STATUT")
+    logger.info("[TASK-END] Oracle Schema Statut | results=%s", len(results))
+    return results
+
+
+@task(name="collecte oracle schema performance")
+def collect_oracle_schema_performance_task():
+    logger = get_run_logger()
+    logger.info("[TASK-START] Oracle Schema Performance")
+    results = collect_db_category("LOCAL_19C_SCHEMA", "ORACLE", "PERFORMANCE")
+    logger.info("[TASK-END] Oracle Schema Performance | results=%s", len(results))
+    return results
+
+
+@task(name="collecte oracle schema autres")
+def collect_oracle_schema_autres_task():
+    logger = get_run_logger()
+    logger.info("[TASK-START] Oracle Schema Autres")
+    results = collect_db_category("LOCAL_19C_SCHEMA", "ORACLE", "AUTRES")
+    logger.info("[TASK-END] Oracle Schema Autres | results=%s", len(results))
     return results
 
 
@@ -337,21 +348,39 @@ def collect_oracle_autres_flow():
     return results
 
 
-@flow(name="Collect MySQL Threads Flow")
-def collect_mysql_threads_flow():
+@flow(name="Collect Oracle Schema Sessions Flow")
+def collect_oracle_schema_sessions_flow():
     logger = get_run_logger()
-    logger.info("[FLOW] Démarrage -> MySQL Threads")
-    results = collect_mysql_threads_task()
-    logger.info("[FLOW] Terminé -> MySQL Threads | results=%s", len(results))
+    logger.info("[FLOW] Démarrage -> Oracle Schema Sessions")
+    results = collect_oracle_schema_sessions_task()
+    logger.info("[FLOW] Terminé -> Oracle Schema Sessions | results=%s", len(results))
     return results
 
 
-@flow(name="Collect MySQL Autres Flow")
-def collect_mysql_autres_flow():
+@flow(name="Collect Oracle Schema Statut Flow")
+def collect_oracle_schema_statut_flow():
     logger = get_run_logger()
-    logger.info("[FLOW] Démarrage -> MySQL Autres")
-    results = collect_mysql_autres_task()
-    logger.info("[FLOW] Terminé -> MySQL Autres | results=%s", len(results))
+    logger.info("[FLOW] Démarrage -> Oracle Schema Statut")
+    results = collect_oracle_schema_statut_task()
+    logger.info("[FLOW] Terminé -> Oracle Schema Statut | results=%s", len(results))
+    return results
+
+
+@flow(name="Collect Oracle Schema Performance Flow")
+def collect_oracle_schema_performance_flow():
+    logger = get_run_logger()
+    logger.info("[FLOW] Démarrage -> Oracle Schema Performance")
+    results = collect_oracle_schema_performance_task()
+    logger.info("[FLOW] Terminé -> Oracle Schema Performance | results=%s", len(results))
+    return results
+
+
+@flow(name="Collect Oracle Schema Autres Flow")
+def collect_oracle_schema_autres_flow():
+    logger = get_run_logger()
+    logger.info("[FLOW] Démarrage -> Oracle Schema Autres")
+    results = collect_oracle_schema_autres_task()
+    logger.info("[FLOW] Terminé -> Oracle Schema Autres | results=%s", len(results))
     return results
 
 
@@ -359,26 +388,34 @@ if __name__ == "__main__":
     serve(
         collect_oracle_sessions_flow.to_deployment(
             name="collect-oracle-sessions-local-19c",
-            interval=120,
+            interval=300,
         ),
         collect_oracle_statut_flow.to_deployment(
             name="collect-oracle-statut-local-19c",
-            interval=120,
+            interval=300,
         ),
         collect_oracle_performance_flow.to_deployment(
             name="collect-oracle-performance-local-19c",
-            interval=120,
+            interval=300,
         ),
         collect_oracle_autres_flow.to_deployment(
             name="collect-oracle-autres-local-19c",
-            interval=120,
+            interval=300,
         ),
-        collect_mysql_threads_flow.to_deployment(
-            name="collect-mysql-threads-my-sql",
-            interval=120,
+        collect_oracle_schema_sessions_flow.to_deployment(
+            name="collect-oracle-schema-sessions-local-19c-schema",
+            interval=300,
         ),
-        collect_mysql_autres_flow.to_deployment(
-            name="collect-mysql-autres-my-sql",
-            interval=120,
+        collect_oracle_schema_statut_flow.to_deployment(
+            name="collect-oracle-schema-statut-local-19c-schema",
+            interval=300,
+        ),
+        collect_oracle_schema_performance_flow.to_deployment(
+            name="collect-oracle-schema-performance-local-19c-schema",
+            interval=300,
+        ),
+        collect_oracle_schema_autres_flow.to_deployment(
+            name="collect-oracle-schema-autres-local-19c-schema",
+            interval=300,
         ),
     )

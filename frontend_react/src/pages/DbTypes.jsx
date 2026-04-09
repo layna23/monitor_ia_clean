@@ -86,6 +86,14 @@ export default function DbTypes() {
     loadDbTypes();
   }, []);
 
+  useEffect(() => {
+    if (!message.text) return;
+    const timer = setTimeout(() => {
+      setMessage({ type: "", text: "" });
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [message]);
+
   function badgeStatus(status) {
     const s = String(status || "").toUpperCase();
     if (s === "ACTIVE") return <span style={styles.badgeSuccess}>ACTIF</span>;
@@ -179,15 +187,22 @@ export default function DbTypes() {
   }
 
   const filteredData = useMemo(() => {
-    if (!search.trim()) return data;
+    let result = Array.isArray(data) ? data : [];
+
+    // cacher les éléments supprimés / inactifs
+    result = result.filter(
+      (x) => String(x.status || "").toUpperCase() !== "INACTIVE"
+    );
+
+    if (!search.trim()) return result;
 
     const s = search.toLowerCase().trim();
-    return data.filter(
+
+    return result.filter(
       (x) =>
         String(x.code || "").toLowerCase().includes(s) ||
         String(x.name || "").toLowerCase().includes(s) ||
-        String(x.driver || "").toLowerCase().includes(s) ||
-        String(x.status || "").toLowerCase().includes(s)
+        String(x.driver || "").toLowerCase().includes(s)
     );
   }, [data, search]);
 

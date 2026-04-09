@@ -12,9 +12,36 @@ from backend.schemas.alerts import AlertCreate, AlertOut, AlertUpdate
 router = APIRouter(prefix="/alerts", tags=["Alerts"])
 
 
+def is_technical_alert(alert: Alert) -> bool:
+    title = str(alert.title or "").lower()
+    details = str(alert.details or "").lower()
+
+    technical_keywords = [
+        "execution failed",
+        "ora-",
+        "dpy-",
+        "cannot connect",
+        "timed out",
+        "timeout",
+        "table ou vue inexistante",
+        "service is not registered with the listener",
+        "privilege",
+        "permission denied",
+    ]
+
+    return any(keyword in title or keyword in details for keyword in technical_keywords)
+
+
 @router.get("/", response_model=list[AlertOut])
 def list_alerts(db: Session = Depends(get_db)):
-    return db.query(Alert).order_by(Alert.alert_id.desc()).all()
+    alerts = db.query(Alert).order_by(Alert.alert_id.desc()).all()
+
+    business_alerts = []
+    for alert in alerts:
+        if not is_technical_alert(alert):
+            business_alerts.append(alert)
+
+    return business_alerts
 
 
 @router.get("/{alert_id}", response_model=AlertOut)
@@ -27,7 +54,6 @@ def get_alert(alert_id: int, db: Session = Depends(get_db)):
 
 @router.post("/", response_model=AlertOut, status_code=status.HTTP_201_CREATED)
 def create_alert(payload: AlertCreate, db: Session = Depends(get_db)):
-    # ✅ ID via sequence DBMON
     try:
         next_id = db.execute(text("SELECT DBMON.ALERTS_SEQ.NEXTVAL FROM DUAL")).scalar()
     except Exception as e:
@@ -76,7 +102,6 @@ def update_alert(alert_id: int, payload: AlertUpdate, db: Session = Depends(get_
 
     data = payload.model_dump(exclude_unset=True)
 
-    # ✅ auto updated_at si pas fourni
     if "updated_at" not in data:
         data["updated_at"] = datetime.now()
 

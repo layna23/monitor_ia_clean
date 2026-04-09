@@ -11,6 +11,202 @@ import {
 } from "recharts";
 import api from "../api/client";
 
+function CustomMetricTooltip({ active, payload, label }) {
+  if (!active || !payload || payload.length === 0) return null;
+
+  const row = payload[0]?.payload || {};
+
+  return (
+    <div
+      style={{
+        background: "#ffffff",
+        border: "1px solid #e2e8f0",
+        borderRadius: 12,
+        fontSize: 12,
+        boxShadow: "0 8px 24px rgba(15,23,42,0.08)",
+        padding: 12,
+        minWidth: 170,
+      }}
+    >
+      <div style={{ fontWeight: 700, color: "#0f172a", marginBottom: 10 }}>
+        {label || "-"}
+      </div>
+
+      <div style={{ color: "#ef4444", marginBottom: 8 }}>
+        crit_threshold : {row.crit_threshold ?? "—"}
+      </div>
+
+      <div style={{ color: "#2563eb", marginBottom: 8 }}>
+        value : {row.value ?? "—"}
+      </div>
+
+      <div style={{ color: "#f59e0b" }}>
+        warn_threshold : {row.warn_threshold ?? "—"}
+      </div>
+    </div>
+  );
+}
+
+function normalizeSeverity(value) {
+  return String(value || "INFO").trim().toUpperCase();
+}
+
+function getMetricStatus(metric) {
+  return normalizeSeverity(metric?.severity || "INFO");
+}
+
+function getMetricStatusStyle(status) {
+  switch (normalizeSeverity(status)) {
+    case "CRITICAL":
+      return {
+        bg: "#fff1f2",
+        color: "#9f1239",
+        border: "#fecdd3",
+      };
+    case "WARNING":
+      return {
+        bg: "#fffbeb",
+        color: "#92400e",
+        border: "#fde68a",
+      };
+    case "OK":
+      return {
+        bg: "#f0fdf4",
+        color: "#166534",
+        border: "#bbf7d0",
+      };
+    case "INFO":
+      return {
+        bg: "#eff6ff",
+        color: "#1e40af",
+        border: "#bfdbfe",
+      };
+    default:
+      return {
+        bg: "#f8fafc",
+        color: "#475569",
+        border: "#e2e8f0",
+      };
+  }
+}
+
+function CollapsibleSection({
+  title,
+  subtitle,
+  isOpen,
+  onToggle,
+  children,
+}) {
+  return (
+    <div style={styles.sectionCard}>
+      <div style={styles.sectionHeaderClickable} onClick={onToggle}>
+        <div>
+          <div style={styles.sectionTitle}>{title}</div>
+          {subtitle ? <div style={styles.sectionSubtitle}>{subtitle}</div> : null}
+        </div>
+        <span style={styles.sectionChevron}>{isOpen ? "▾" : "▸"}</span>
+      </div>
+      {isOpen ? <div style={styles.sectionContent}>{children}</div> : null}
+    </div>
+  );
+}
+
+function InfoCard({ label, value }) {
+  return (
+    <div style={styles.infoCard}>
+      <div style={styles.infoLabel}>{label}</div>
+      <div style={styles.infoValue}>{value || "—"}</div>
+    </div>
+  );
+}
+
+function EmptyBox({ message }) {
+  return <div style={styles.emptyBox}>{message}</div>;
+}
+
+function SingleMetricChartCard({ title, metric, chartData }) {
+  const status = metric ? getMetricStatus(metric) : "INFO";
+  const statusStyle = getMetricStatusStyle(status);
+
+  return (
+    <div style={styles.chartCard}>
+      <div style={styles.chartTop}>
+        <div style={styles.chartMetricTitle}>{title}</div>
+        <span
+          style={{
+            ...styles.smallMetricBadge,
+            background: statusStyle.bg,
+            color: statusStyle.color,
+            borderColor: statusStyle.border,
+          }}
+        >
+          {metric ? status : "NON DISPONIBLE"}
+        </span>
+      </div>
+
+      {!metric ? (
+        <div style={styles.emptyBoxSmall}>Métrique non disponible</div>
+      ) : chartData.length === 0 ? (
+        <div style={styles.emptyBoxSmall}>Pas d&apos;historique</div>
+      ) : (
+        <ResponsiveContainer width="100%" height={260}>
+          <LineChart
+            data={chartData}
+            margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#dbe3ef" />
+            <XAxis
+              dataKey="label"
+              tick={{ fontSize: 11, fill: "#64748b" }}
+              stroke="#94a3b8"
+              minTickGap={20}
+            />
+            <YAxis
+              tick={{ fontSize: 11, fill: "#64748b" }}
+              stroke="#94a3b8"
+              width={42}
+            />
+            <Tooltip
+              cursor={{ stroke: "#cbd5e1", strokeWidth: 1 }}
+              content={(props) => <CustomMetricTooltip {...props} />}
+            />
+            <Line
+              type="monotone"
+              dataKey="value"
+              stroke="#2563eb"
+              strokeWidth={2.5}
+              dot={{ r: 4, strokeWidth: 2, fill: "#ffffff" }}
+              activeDot={{ r: 7, strokeWidth: 2, fill: "#ffffff" }}
+              connectNulls
+              isAnimationActive={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="warn_threshold"
+              stroke="#f59e0b"
+              strokeWidth={1.5}
+              dot={{ r: 3, strokeWidth: 2, fill: "#ffffff" }}
+              activeDot={{ r: 6, strokeWidth: 2, fill: "#ffffff" }}
+              connectNulls
+              isAnimationActive={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="crit_threshold"
+              stroke="#ef4444"
+              strokeWidth={1.5}
+              dot={{ r: 3, strokeWidth: 2, fill: "#ffffff" }}
+              activeDot={{ r: 6, strokeWidth: 2, fill: "#ffffff" }}
+              connectNulls
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
 export default function DetailBase() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -71,20 +267,30 @@ export default function DetailBase() {
     "TOTAL_SESSIONS",
     "INSTANCE_UPTIME_HOURS",
     "DB_STATUS",
+    "DB_INFO",
     "CPU_USED_SESSION",
     "CPU_USED_BY_SESSION",
+    "CPU_USAGE",
+    "RAM_USAGE",
+    "MEMORY_USAGE",
+    "SGA_USAGE",
+    "PGA_USAGE",
     "SESSION_UPTIME_HOURS",
     "THREADS_CONNECTED",
     "THREADS_RUNNING",
   ];
 
-  const allAllowedCodes = [
+  const chartAllowedCodes = [
     "ACTIVE_SESSIONS",
     "SESSION_COUNT",
     "ACTIVE_TRANSACTIONS",
-    "DB_STATUS",
     "CPU_USED_SESSION",
     "CPU_USED_BY_SESSION",
+    "CPU_USAGE",
+    "RAM_USAGE",
+    "MEMORY_USAGE",
+    "SGA_USAGE",
+    "PGA_USAGE",
     "INSTANCE_UPTIME_HOURS",
     "SESSION_UPTIME_HOURS",
     "LOCKED_OBJECTS",
@@ -94,10 +300,7 @@ export default function DetailBase() {
   ];
 
   const visibleMetrics = useMemo(() => {
-    return latestMetrics.filter((metric) => {
-      const code = String(metric.metric_code || "").toUpperCase();
-      return allAllowedCodes.includes(code);
-    });
+    return [...latestMetrics];
   }, [latestMetrics]);
 
   const sortedMetrics = useMemo(() => {
@@ -109,9 +312,14 @@ export default function DetailBase() {
       return idx === -1 ? 999 : idx;
     };
 
-    return [...visibleMetrics].sort(
-      (a, b) => score(a.metric_code) - score(b.metric_code)
-    );
+    return [...visibleMetrics].sort((a, b) => {
+      const aScore = score(a.metric_code);
+      const bScore = score(b.metric_code);
+
+      if (aScore !== bScore) return aScore - bScore;
+
+      return String(a.metric_code || "").localeCompare(String(b.metric_code || ""));
+    });
   }, [visibleMetrics]);
 
   const historyByMetric = useMemo(() => {
@@ -119,8 +327,7 @@ export default function DetailBase() {
 
     history.forEach((row) => {
       const code = String(row.metric_code || "").toUpperCase();
-
-      if (!allAllowedCodes.includes(code)) return;
+      if (!chartAllowedCodes.includes(code)) return;
 
       if (!grouped[code]) grouped[code] = [];
 
@@ -146,7 +353,7 @@ export default function DetailBase() {
     return latestMetrics
       .filter((metric) => {
         const code = String(metric.metric_code || "").toUpperCase();
-        return allAllowedCodes.includes(code) && (historyByMetric[code]?.length || 0) > 0;
+        return chartAllowedCodes.includes(code) && (historyByMetric[code]?.length || 0) > 0;
       })
       .sort((a, b) =>
         String(a.metric_code || "").localeCompare(String(b.metric_code || ""))
@@ -289,7 +496,7 @@ export default function DetailBase() {
 
       <CollapsibleSection
         title="Métriques actuelles"
-        subtitle={`Tableau des métriques principales de ${overview.db_name || "la base"}`}
+        subtitle={`Toutes les métriques collectées de ${overview.db_name || "la base"}`}
         isOpen={openSections.metrics}
         onToggle={() => toggleSection("metrics")}
       >
@@ -302,7 +509,7 @@ export default function DetailBase() {
                 <tr>
                   <th style={styles.th}>Metric</th>
                   <th style={styles.th}>Value</th>
-                  <th style={styles.th}>Status</th>
+                  <th style={styles.th}>Severity</th>
                   <th style={styles.th}>Warning</th>
                   <th style={styles.th}>Critique</th>
                   <th style={styles.th}>Fréquence</th>
@@ -377,159 +584,6 @@ export default function DetailBase() {
       </CollapsibleSection>
     </div>
   );
-}
-
-function CollapsibleSection({
-  title,
-  subtitle,
-  isOpen,
-  onToggle,
-  children,
-}) {
-  return (
-    <div style={styles.sectionCard}>
-      <div style={styles.sectionHeaderClickable} onClick={onToggle}>
-        <div>
-          <div style={styles.sectionTitle}>{title}</div>
-          {subtitle ? <div style={styles.sectionSubtitle}>{subtitle}</div> : null}
-        </div>
-        <span style={styles.sectionChevron}>{isOpen ? "▾" : "▸"}</span>
-      </div>
-      {isOpen ? <div style={styles.sectionContent}>{children}</div> : null}
-    </div>
-  );
-}
-
-function InfoCard({ label, value }) {
-  return (
-    <div style={styles.infoCard}>
-      <div style={styles.infoLabel}>{label}</div>
-      <div style={styles.infoValue}>{value || "—"}</div>
-    </div>
-  );
-}
-
-function SingleMetricChartCard({ title, metric, chartData }) {
-  const status = metric ? getMetricStatus(metric) : "INFO";
-  const statusStyle = getMetricStatusStyle(status);
-
-  return (
-    <div style={styles.chartCard}>
-      <div style={styles.chartTop}>
-        <div style={styles.chartMetricTitle}>{title}</div>
-        <span
-          style={{
-            ...styles.smallMetricBadge,
-            background: statusStyle.bg,
-            color: statusStyle.color,
-            borderColor: statusStyle.border,
-          }}
-        >
-          {metric ? status : "NON DISPONIBLE"}
-        </span>
-      </div>
-
-      {!metric ? (
-        <div style={styles.emptyBoxSmall}>Métrique non disponible</div>
-      ) : chartData.length === 0 ? (
-        <div style={styles.emptyBoxSmall}>Pas d&apos;historique</div>
-      ) : (
-        <ResponsiveContainer width="100%" height={260}>
-          <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#dbe3ef" />
-            <XAxis
-              dataKey="label"
-              tick={{ fontSize: 11, fill: "#64748b" }}
-              stroke="#94a3b8"
-              minTickGap={20}
-            />
-            <YAxis
-              tick={{ fontSize: 11, fill: "#64748b" }}
-              stroke="#94a3b8"
-              width={42}
-            />
-            <Tooltip
-              contentStyle={{
-                background: "#ffffff",
-                border: "1px solid #e2e8f0",
-                borderRadius: 12,
-                fontSize: 12,
-                boxShadow: "0 8px 24px rgba(15,23,42,0.08)",
-              }}
-            />
-            <Line
-              type="monotone"
-              dataKey="value"
-              stroke="#2563eb"
-              strokeWidth={2.5}
-              dot={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="warn_threshold"
-              stroke="#f59e0b"
-              strokeWidth={1.5}
-              dot={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="crit_threshold"
-              stroke="#ef4444"
-              strokeWidth={1.5}
-              dot={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      )}
-    </div>
-  );
-}
-
-function EmptyBox({ message }) {
-  return <div style={styles.emptyBox}>{message}</div>;
-}
-
-function getMetricStatus(metric) {
-  const value = Number(metric?.value_number);
-  const warn = Number(metric?.warn_threshold);
-  const crit = Number(metric?.crit_threshold);
-
-  if (!Number.isFinite(value)) {
-    return String(metric?.severity || "INFO").toUpperCase();
-  }
-
-  if (Number.isFinite(crit) && value >= crit) return "CRITICAL";
-  if (Number.isFinite(warn) && value >= warn) return "WARNING";
-  return "OK";
-}
-
-function getMetricStatusStyle(status) {
-  switch (status) {
-    case "CRITICAL":
-      return {
-        bg: "#fff1f2",
-        color: "#9f1239",
-        border: "#fecdd3",
-      };
-    case "WARNING":
-      return {
-        bg: "#fffbeb",
-        color: "#92400e",
-        border: "#fde68a",
-      };
-    case "OK":
-      return {
-        bg: "#f0fdf4",
-        color: "#166534",
-        border: "#bbf7d0",
-      };
-    default:
-      return {
-        bg: "#f8fafc",
-        color: "#475569",
-        border: "#e2e8f0",
-      };
-  }
 }
 
 const styles = {

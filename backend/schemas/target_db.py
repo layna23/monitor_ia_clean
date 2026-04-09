@@ -85,4 +85,6 @@ class TargetDBOverviewOut(BaseModel):
     failed_runs: int
     success_rate: float
 
+    archive_mode: Optional[str] = None
+
     latest_metrics: List[TargetDBLatestMetricOut]

@@ -64,25 +64,10 @@ function prettifyMetricLabel(code) {
   return map[value] || value || "-";
 }
 
-function isMysqlDbName(name) {
-  return String(name || "").toUpperCase().includes("MYSQL");
-}
-
-function matchesAllowedDb(name) {
-  const n = String(name || "").trim().toUpperCase();
-  return (
-    n === "LOCAL_ORCL" ||
-    n === "LOCAL_19C" ||
-    n === "LOCAL_ORCL_3" ||
-    n === "LOCAL_ORCL_22" ||
-    n === "ORCL_TEST" ||
-    n === "ORCL_TEST_1" ||
-    n === "ORCL_TEST_2" ||
-    n.startsWith("ORCL_TEST") ||
-    n === "MY SQL" ||
-    n === "MYSQL" ||
-    n.startsWith("MY_SQL")
-  );
+function isMysqlDb(db) {
+  const dbName = String(db?.db_name || "").toUpperCase();
+  const dbTypeName = String(db?.db_type_name || "").toUpperCase();
+  return dbName.includes("MYSQL") || dbTypeName.includes("MYSQL");
 }
 
 export default function Dashboard() {
@@ -131,25 +116,25 @@ export default function Dashboard() {
     async function load() {
       try {
         const [dbs, defs, values, latest] = await Promise.all([
-          fetch(`${API_BASE}/target-dbs/`).then((r) => r.json()),
-          fetch(`${API_BASE}/metric-defs/`).then((r) => r.json()),
-          fetch(`${API_BASE}/metric-values/`).then((r) => r.json()),
-          fetch(`${API_BASE}/metric-values/latest`).then((r) => r.json()),
+          apiGet("/target-dbs/", []),
+          apiGet("/metric-defs/", []),
+          apiGet("/metric-values/", []),
+          apiGet("/metric-values/latest", []),
         ]);
 
         const dbRows = Array.isArray(dbs) ? dbs : [];
-        const filteredDbs = dbRows.filter((db) => matchesAllowedDb(db.db_name));
 
-        setTargetDbs(filteredDbs);
+        setTargetDbs(dbRows);
         setMetricDefs(Array.isArray(defs) ? defs : []);
         setMetricValues(Array.isArray(values) ? values : []);
         setLatestMetrics(Array.isArray(latest) ? latest : []);
 
-        if (filteredDbs.length > 0) {
+        if (dbRows.length > 0) {
           const local19c =
-            filteredDbs.find(
-              (db) => String(db.db_name || "").toUpperCase() === "LOCAL_19C"
-            ) || filteredDbs[0];
+            dbRows.find(
+              (db) => String(db.db_name || "").trim().toUpperCase() === "LOCAL_19C"
+            ) || dbRows[0];
+
           setSelectedDbId(String(local19c.db_id));
         }
       } catch (e) {
@@ -167,7 +152,7 @@ export default function Dashboard() {
   }, [targetDbs, selectedDbId]);
 
   const selectedDbName = selectedDb?.db_name || "-";
-  const selectedDbIsMysql = isMysqlDbName(selectedDbName);
+  const selectedDbIsMysql = isMysqlDb(selectedDb);
   const selectedDbIsOracle = !!selectedDb && !selectedDbIsMysql;
 
   useEffect(() => {

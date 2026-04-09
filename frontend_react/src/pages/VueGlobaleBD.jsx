@@ -9,6 +9,8 @@ import {
   Legend,
   Tooltip,
   Cell,
+  LineChart,
+  Line,
 } from "recharts";
 
 const API_BASE = "http://127.0.0.1:8000";
@@ -20,8 +22,7 @@ const COLORS = {
   orange: "#f59e0b",
   purple: "#8b5cf6",
   cyan: "#06b6d4",
-  gray: "#94a3b8",
-  rose: "#9f1239",
+  pink: "#ec4899",
 };
 
 export default function VueGlobaleBD() {
@@ -32,6 +33,23 @@ export default function VueGlobaleBD() {
   const [loading, setLoading] = useState(true);
   const [loadingOverview, setLoadingOverview] = useState(false);
   const [openedInfoKey, setOpenedInfoKey] = useState(null);
+
+  const [metricDefs, setMetricDefs] = useState([]);
+  const [metricRuns, setMetricRuns] = useState([]);
+  const [metricValues, setMetricValues] = useState([]);
+  const [dbTypes, setDbTypes] = useState([]);
+
+  const [selectedChartMetric, setSelectedChartMetric] = useState("");
+
+  const [openSections, setOpenSections] = useState({
+    explanation: true,
+    latestMetrics: true,
+    numericValues: true,
+    sensitiveMetrics: true,
+    evolution: true,
+    runs: true,
+    configuredMetrics: true,
+  });
 
   async function apiGet(endpoint, defaultValue = null) {
     try {
@@ -45,6 +63,13 @@ export default function VueGlobaleBD() {
       console.error("API ERROR:", e);
       return defaultValue;
     }
+  }
+
+  function toggleSection(key) {
+    setOpenSections((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
   }
 
   function safeDate(value) {
@@ -61,6 +86,56 @@ export default function VueGlobaleBD() {
     )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   }
 
+  function formatAxisDate(value) {
+    const d = value instanceof Date ? value : safeDate(value);
+    if (!d) return "";
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(
+      d.getMinutes()
+    )}`;
+  }
+
+  function formatUptimeSmart(hoursValue) {
+    const n = Number(hoursValue);
+
+    if (!Number.isFinite(n) || n < 0) {
+      return String(hoursValue ?? "-");
+    }
+
+    const totalMinutes = Math.round(n * 60);
+
+    if (totalMinutes < 60) {
+      return `${totalMinutes} min`;
+    }
+
+    const totalHours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+
+    if (totalHours < 24) {
+      if (minutes === 0) return `${totalHours} h`;
+      return `${totalHours} h ${minutes} min`;
+    }
+
+    const days = Math.floor(totalHours / 24);
+    const remainingHours = totalHours % 24;
+
+    if (remainingHours === 0 && minutes === 0) {
+      return `${days} j`;
+    }
+
+    if (minutes === 0) {
+      return `${days} j ${remainingHours} h`;
+    }
+
+    return `${days} j ${remainingHours} h ${minutes} min`;
+  }
+
+  function formatPercentValue(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return String(value ?? "-");
+    return `${n} %`;
+  }
+
   function firstNotEmpty(...values) {
     for (const v of values) {
       if (v === null || v === undefined) continue;
@@ -68,6 +143,10 @@ export default function VueGlobaleBD() {
       return v;
     }
     return null;
+  }
+
+  function normalizeSeverity(value) {
+    return String(value || "INFO").trim().toUpperCase();
   }
 
   function getMetricObj(latestMetrics, code) {
@@ -140,14 +219,22 @@ export default function VueGlobaleBD() {
     async function load() {
       setLoading(true);
 
-      const [dbs, alerts] = await Promise.all([
+      const [dbs, alerts, defs, runs, values, types] = await Promise.all([
         apiGet("/target-dbs/", []),
         apiGet("/alerts/", []),
+        apiGet("/metric-defs/", []),
+        apiGet("/metric-runs/", []),
+        apiGet("/metric-values/", []),
+        apiGet("/db-types/", []),
       ]);
 
       const dbList = Array.isArray(dbs) ? dbs : [];
       setTargetDbs(dbList);
       setAlertsAll(Array.isArray(alerts) ? alerts : []);
+      setMetricDefs(Array.isArray(defs) ? defs : []);
+      setMetricRuns(Array.isArray(runs) ? runs : []);
+      setMetricValues(Array.isArray(values) ? values : []);
+      setDbTypes(Array.isArray(types) ? types : []);
 
       if (dbList.length > 0) {
         setSelectedDbId(String(dbList[0].db_id));
@@ -173,13 +260,33 @@ export default function VueGlobaleBD() {
     loadOverview();
   }, [selectedDbId]);
 
+  const selectedDb = useMemo(() => {
+    return targetDbs.find((db) => String(db.db_id) === String(selectedDbId)) || null;
+  }, [targetDbs, selectedDbId]);
+
   const latestMetrics = useMemo(() => {
     return Array.isArray(overview?.latest_metrics) ? overview.latest_metrics : [];
   }, [overview]);
 
   const dbTypeName = String(overview?.db_type_name || "").toUpperCase();
   const isMySQL = dbTypeName === "MYSQL";
-  const isOracle = dbTypeName === "ORACLE";
+  const archiveModeValue = overview?.archive_mode || "-";
+
+  const metricMap = useMemo(() => {
+    const map = {};
+    metricDefs.forEach((m) => {
+      map[String(m.metric_id)] = m.metric_code || "?";
+    });
+    return map;
+  }, [metricDefs]);
+
+  const dbTypeMap = useMemo(() => {
+    const map = {};
+    dbTypes.forEach((d) => {
+      map[String(d.db_type_id)] = d.name || "?";
+    });
+    return map;
+  }, [dbTypes]);
 
   const alertsDb = useMemo(() => {
     return alertsAll.filter((a) => Number(a.db_id) === Number(selectedDbId));
@@ -189,10 +296,6 @@ export default function VueGlobaleBD() {
     return alertsDb.filter((a) => String(a.status || "").toUpperCase() === "OPEN");
   }, [alertsDb]);
 
-  const criticalOpenAlerts = useMemo(() => {
-    return openAlerts.filter((a) => String(a.severity || "").toUpperCase() === "CRITICAL");
-  }, [openAlerts]);
-
   const latestMetricsTable = useMemo(() => {
     return latestMetrics.map((m) => ({
       metric_code: m.metric_code,
@@ -200,7 +303,7 @@ export default function VueGlobaleBD() {
         m.value_number !== null && m.value_number !== undefined
           ? String(m.value_number)
           : String(m.value_text ?? "-"),
-      severity: String(m.severity ?? "-"),
+      severity: normalizeSeverity(m.severity),
       collected_at: formatDateTime(m.collected_at),
       collected_at_raw: safeDate(m.collected_at),
     }));
@@ -218,61 +321,142 @@ export default function VueGlobaleBD() {
   }, [latestMetrics]);
 
   const sensitiveMetrics = useMemo(() => {
-    const rankMap = { CRITICAL: 3, WARNING: 2, INFO: 1, OK: 0 };
-
     return latestMetrics
+      .filter((m) => {
+        const severity = normalizeSeverity(m.severity);
+        const code = String(m.metric_code || "").toUpperCase();
+        if (code === "DB_INFO") return false;
+        return severity === "CRITICAL" || severity === "WARNING";
+      })
       .map((m) => ({
         metric_code: m.metric_code,
         value:
           m.value_number !== null && m.value_number !== undefined
             ? String(m.value_number)
             : String(m.value_text ?? "-"),
-        severity: String(m.severity ?? "-"),
+        severity: normalizeSeverity(m.severity),
         collected_at: formatDateTime(m.collected_at),
         collected_at_raw: safeDate(m.collected_at),
-        severity_rank: rankMap[String(m.severity || "").toUpperCase()] ?? 0,
       }))
       .sort((a, b) => {
-        if (b.severity_rank !== a.severity_rank) return b.severity_rank - a.severity_rank;
+        const rankMap = { CRITICAL: 2, WARNING: 1 };
+        const rankDiff = (rankMap[b.severity] || 0) - (rankMap[a.severity] || 0);
+        if (rankDiff !== 0) return rankDiff;
+
         const aTime = a.collected_at_raw ? a.collected_at_raw.getTime() : 0;
         const bTime = b.collected_at_raw ? b.collected_at_raw.getTime() : 0;
         return bTime - aTime;
-      })
-      .slice(0, 8);
+      });
   }, [latestMetrics]);
 
-  const alertsDbTable = useMemo(() => {
-    return [...alertsDb]
-      .map((a) => ({
-        alert_id: a.alert_id,
-        severity: String(a.severity ?? "-"),
-        status: String(a.status ?? "-"),
-        title: String(a.title ?? "-"),
-        last_value: String(a.last_value ?? "-"),
-        created_at: formatDateTime(a.created_at),
-        created_at_raw: safeDate(a.created_at),
+  const dbRuns = useMemo(() => {
+    if (!selectedDb) return [];
+    return metricRuns.filter((r) => String(r.db_id) === String(selectedDb.db_id));
+  }, [metricRuns, selectedDb]);
+
+  const dbValues = useMemo(() => {
+    if (!selectedDb) return [];
+    return metricValues.filter((v) => String(v.db_id) === String(selectedDb.db_id));
+  }, [metricValues, selectedDb]);
+
+  const globalStatus = useMemo(() => {
+    if (!selectedDb) return "INACTIF";
+
+    const isActive = Number(selectedDb.is_active || 0) === 1;
+    if (!isActive) return "INACTIF";
+
+    const severities = latestMetrics
+      .map((m) => normalizeSeverity(m.severity))
+      .filter(Boolean);
+
+    if (severities.includes("CRITICAL")) return "CRITICAL";
+    if (severities.includes("WARNING")) return "WARNING";
+    if (severities.includes("OK")) return "OK";
+    if (severities.includes("INFO")) return "INFO";
+
+    return "OK";
+  }, [selectedDb, latestMetrics]);
+
+  const compatibleMetrics = useMemo(() => {
+    if (!selectedDb) return [];
+    return metricDefs.filter(
+      (m) =>
+        String(m.db_type_id) === String(selectedDb.db_type_id) &&
+        Number(m.is_active || 0) === 1
+    );
+  }, [metricDefs, selectedDb]);
+
+  const numericValuesPrepared = useMemo(() => {
+    return dbValues
+      .filter((v) => v.value_number !== null && v.value_number !== undefined && v.collected_at)
+      .map((v) => ({
+        ...v,
+        metric_code: metricMap[String(v.metric_id)] || "?",
+        collected_at_obj: new Date(v.collected_at),
+        value_number_num: Number(v.value_number),
       }))
-      .sort((a, b) => {
-        const aTime = a.created_at_raw ? a.created_at_raw.getTime() : 0;
-        const bTime = b.created_at_raw ? b.created_at_raw.getTime() : 0;
-        return bTime - aTime;
-      })
-      .slice(0, 10);
-  }, [alertsDb]);
+      .filter(
+        (v) =>
+          !Number.isNaN(v.collected_at_obj.getTime()) && Number.isFinite(v.value_number_num)
+      )
+      .sort((a, b) => a.collected_at_obj - b.collected_at_obj);
+  }, [dbValues, metricMap]);
+
+  const chartMetricOptions = useMemo(() => {
+    return [...new Set(numericValuesPrepared.map((v) => v.metric_code))].sort();
+  }, [numericValuesPrepared]);
+
+  useEffect(() => {
+    if (chartMetricOptions.length > 0) {
+      setSelectedChartMetric((prev) =>
+        prev && chartMetricOptions.includes(prev) ? prev : chartMetricOptions[0]
+      );
+    } else {
+      setSelectedChartMetric("");
+    }
+  }, [chartMetricOptions]);
+
+  const chartData = useMemo(() => {
+    if (!selectedChartMetric) return [];
+
+    return numericValuesPrepared
+      .filter((v) => v.metric_code === selectedChartMetric)
+      .map((v) => ({
+        collected_at: v.collected_at_obj,
+        collected_at_label: formatAxisDate(v.collected_at_obj),
+        collected_at_full: formatDateTime(v.collected_at_obj),
+        value: v.value_number_num,
+      }))
+      .slice(-60);
+  }, [numericValuesPrepared, selectedChartMetric]);
+
+  const chartStats = useMemo(() => {
+    if (!chartData.length) return null;
+    const values = chartData.map((x) => x.value);
+    return {
+      min: Math.min(...values),
+      max: Math.max(...values),
+      last: values[values.length - 1],
+    };
+  }, [chartData]);
 
   const dbStatusMetric = getMetricObj(latestMetrics, "DB_STATUS");
   const activeSessionsMetric = getMetricObj(latestMetrics, "ACTIVE_SESSIONS");
   const activeTxMetric = getMetricObj(latestMetrics, "ACTIVE_TRANSACTIONS");
-  const cpuMetric = getMetricObj(latestMetrics, "CPU_USED_SESSION");
+  const cpuUsedSessionMetric = getMetricObj(latestMetrics, "CPU_USED_SESSION");
   const uptimeMetric = getMetricObj(latestMetrics, "INSTANCE_UPTIME_HOURS");
+  const cpuUsageMetric = getMetricObj(latestMetrics, "CPU_USAGE");
+  const ramUsageMetric = getMetricObj(latestMetrics, "RAM_USAGE");
   const threadsConnectedMetric = getMetricObj(latestMetrics, "THREADS_CONNECTED");
   const threadsRunningMetric = getMetricObj(latestMetrics, "THREADS_RUNNING");
 
   const dbStatusValue = getMetricValue(latestMetrics, "DB_STATUS");
   const activeSessionsValue = getMetricValue(latestMetrics, "ACTIVE_SESSIONS");
   const activeTxValue = getMetricValue(latestMetrics, "ACTIVE_TRANSACTIONS");
-  const cpuValue = getMetricValue(latestMetrics, "CPU_USED_SESSION");
+  const cpuUsedSessionValue = getMetricValue(latestMetrics, "CPU_USED_SESSION");
   const uptimeValue = getMetricValue(latestMetrics, "INSTANCE_UPTIME_HOURS");
+  const cpuUsageValue = getMetricValue(latestMetrics, "CPU_USAGE");
+  const ramUsageValue = getMetricValue(latestMetrics, "RAM_USAGE");
   const threadsConnectedValue = getMetricValue(latestMetrics, "THREADS_CONNECTED");
   const threadsRunningValue = getMetricValue(latestMetrics, "THREADS_RUNNING");
 
@@ -294,16 +478,28 @@ export default function VueGlobaleBD() {
     "Comptage des transactions actives au moment de la collecte."
   );
 
-  const cpuInfo = buildMetricInfo(
-    cpuMetric,
+  const cpuUsedSessionInfo = buildMetricInfo(
+    cpuUsedSessionMetric,
     "Consommation CPU observée pour les sessions au moment de la collecte.",
     "Valeur directe issue de la métrique CPU_USED_SESSION."
   );
 
   const uptimeInfo = buildMetricInfo(
     uptimeMetric,
-    "Temps de fonctionnement de l'instance en heures.",
+    "Temps de fonctionnement de l'instance depuis son démarrage.",
     "Valeur directe issue de la métrique INSTANCE_UPTIME_HOURS."
+  );
+
+  const cpuUsageInfo = buildMetricInfo(
+    cpuUsageMetric,
+    "Pourcentage global d’utilisation CPU de la machine ou de l’instance surveillée.",
+    "Valeur exprimée en pourcentage de charge CPU."
+  );
+
+  const ramUsageInfo = buildMetricInfo(
+    ramUsageMetric,
+    "Pourcentage global d’utilisation mémoire RAM de la machine ou de l’instance surveillée.",
+    "Valeur exprimée en pourcentage d’occupation mémoire."
   );
 
   const threadsConnectedInfo = buildMetricInfo(
@@ -326,7 +522,7 @@ export default function VueGlobaleBD() {
           label: "THREADS CONNECTED",
           value: String(threadsConnectedValue.value),
           accent:
-            String(threadsConnectedValue.severity).toUpperCase() === "CRITICAL"
+            normalizeSeverity(threadsConnectedValue.severity) === "CRITICAL"
               ? COLORS.red
               : COLORS.blue,
         },
@@ -335,9 +531,31 @@ export default function VueGlobaleBD() {
           label: "THREADS RUNNING",
           value: String(threadsRunningValue.value),
           accent:
-            String(threadsRunningValue.severity).toUpperCase() === "CRITICAL"
+            normalizeSeverity(threadsRunningValue.severity) === "CRITICAL"
               ? COLORS.red
               : COLORS.green,
+        },
+        {
+          key: "cpu_usage",
+          label: "CPU USAGE",
+          value: formatPercentValue(cpuUsageValue.value),
+          accent:
+            normalizeSeverity(cpuUsageValue.severity) === "CRITICAL"
+              ? COLORS.red
+              : normalizeSeverity(cpuUsageValue.severity) === "WARNING"
+              ? COLORS.orange
+              : COLORS.purple,
+        },
+        {
+          key: "ram_usage",
+          label: "RAM USAGE",
+          value: formatPercentValue(ramUsageValue.value),
+          accent:
+            normalizeSeverity(ramUsageValue.severity) === "CRITICAL"
+              ? COLORS.red
+              : normalizeSeverity(ramUsageValue.severity) === "WARNING"
+              ? COLORS.orange
+              : COLORS.pink,
         },
       ];
     }
@@ -347,15 +565,24 @@ export default function VueGlobaleBD() {
         key: "db_status",
         label: "DB STATUS",
         value: String(dbStatusValue.value),
-        accent: COLORS.blue,
+        accent:
+          normalizeSeverity(dbStatusValue.severity) === "CRITICAL"
+            ? COLORS.red
+            : normalizeSeverity(dbStatusValue.severity) === "WARNING"
+            ? COLORS.orange
+            : normalizeSeverity(dbStatusValue.severity) === "INFO"
+            ? COLORS.cyan
+            : COLORS.blue,
       },
       {
         key: "active_sessions",
         label: "ACTIVE SESSIONS",
         value: String(activeSessionsValue.value),
         accent:
-          String(activeSessionsValue.severity).toUpperCase() === "CRITICAL"
+          normalizeSeverity(activeSessionsValue.severity) === "CRITICAL"
             ? COLORS.red
+            : normalizeSeverity(activeSessionsValue.severity) === "WARNING"
+            ? COLORS.orange
             : COLORS.green,
       },
       {
@@ -363,21 +590,55 @@ export default function VueGlobaleBD() {
         label: "ACTIVE TRANSACTIONS",
         value: String(activeTxValue.value),
         accent:
-          String(activeTxValue.severity).toUpperCase() === "WARNING"
+          normalizeSeverity(activeTxValue.severity) === "CRITICAL"
+            ? COLORS.red
+            : normalizeSeverity(activeTxValue.severity) === "WARNING"
             ? COLORS.orange
             : COLORS.blue,
       },
       {
         key: "cpu_used_session",
         label: "CPU USED SESSION",
-        value: String(cpuValue.value),
-        accent: COLORS.purple,
+        value: String(cpuUsedSessionValue.value),
+        accent:
+          normalizeSeverity(cpuUsedSessionValue.severity) === "CRITICAL"
+            ? COLORS.red
+            : normalizeSeverity(cpuUsedSessionValue.severity) === "WARNING"
+            ? COLORS.orange
+            : COLORS.purple,
       },
       {
         key: "uptime_h",
-        label: "UPTIME (H)",
-        value: String(uptimeValue.value),
-        accent: COLORS.cyan,
+        label: "UPTIME",
+        value: formatUptimeSmart(uptimeValue.value),
+        accent:
+          normalizeSeverity(uptimeValue.severity) === "CRITICAL"
+            ? COLORS.red
+            : normalizeSeverity(uptimeValue.severity) === "WARNING"
+            ? COLORS.orange
+            : COLORS.cyan,
+      },
+      {
+        key: "cpu_usage",
+        label: "CPU USAGE",
+        value: formatPercentValue(cpuUsageValue.value),
+        accent:
+          normalizeSeverity(cpuUsageValue.severity) === "CRITICAL"
+            ? COLORS.red
+            : normalizeSeverity(cpuUsageValue.severity) === "WARNING"
+            ? COLORS.orange
+            : COLORS.purple,
+      },
+      {
+        key: "ram_usage",
+        label: "RAM USAGE",
+        value: formatPercentValue(ramUsageValue.value),
+        accent:
+          normalizeSeverity(ramUsageValue.severity) === "CRITICAL"
+            ? COLORS.red
+            : normalizeSeverity(ramUsageValue.severity) === "WARNING"
+            ? COLORS.orange
+            : COLORS.pink,
       },
     ];
   }, [
@@ -385,8 +646,10 @@ export default function VueGlobaleBD() {
     dbStatusValue,
     activeSessionsValue,
     activeTxValue,
-    cpuValue,
+    cpuUsedSessionValue,
     uptimeValue,
+    cpuUsageValue,
+    ramUsageValue,
     threadsConnectedValue,
     threadsRunningValue,
   ]);
@@ -396,8 +659,10 @@ export default function VueGlobaleBD() {
       db_status: { title: "DB STATUS", info: dbStatusInfo },
       active_sessions: { title: "ACTIVE SESSIONS", info: activeSessionsInfo },
       active_transactions: { title: "ACTIVE TRANSACTIONS", info: activeTxInfo },
-      cpu_used_session: { title: "CPU USED SESSION", info: cpuInfo },
-      uptime_h: { title: "UPTIME (H)", info: uptimeInfo },
+      cpu_used_session: { title: "CPU USED SESSION", info: cpuUsedSessionInfo },
+      uptime_h: { title: "UPTIME", info: uptimeInfo },
+      cpu_usage: { title: "CPU USAGE", info: cpuUsageInfo },
+      ram_usage: { title: "RAM USAGE", info: ramUsageInfo },
     };
 
     const mysqlMap = {
@@ -409,6 +674,8 @@ export default function VueGlobaleBD() {
         title: "THREADS RUNNING",
         info: threadsRunningInfo,
       },
+      cpu_usage: { title: "CPU USAGE", info: cpuUsageInfo },
+      ram_usage: { title: "RAM USAGE", info: ramUsageInfo },
     };
 
     const map = isMySQL ? mysqlMap : oracleMap;
@@ -419,11 +686,46 @@ export default function VueGlobaleBD() {
     dbStatusInfo,
     activeSessionsInfo,
     activeTxInfo,
-    cpuInfo,
+    cpuUsedSessionInfo,
     uptimeInfo,
+    cpuUsageInfo,
+    ramUsageInfo,
     threadsConnectedInfo,
     threadsRunningInfo,
   ]);
+
+  const statusColor =
+    globalStatus === "CRITICAL"
+      ? "#991b1b"
+      : globalStatus === "WARNING"
+      ? "#92400e"
+      : globalStatus === "OK"
+      ? "#166534"
+      : globalStatus === "INFO"
+      ? "#1e40af"
+      : "#475569";
+
+  const statusBg =
+    globalStatus === "CRITICAL"
+      ? "#fee2e2"
+      : globalStatus === "WARNING"
+      ? "#fffbeb"
+      : globalStatus === "OK"
+      ? "#dcfce7"
+      : globalStatus === "INFO"
+      ? "#eff6ff"
+      : "#f1f5f9";
+
+  const statusBorder =
+    globalStatus === "CRITICAL"
+      ? "#fecaca"
+      : globalStatus === "WARNING"
+      ? "#fde68a"
+      : globalStatus === "OK"
+      ? "#bbf7d0"
+      : globalStatus === "INFO"
+      ? "#bfdbfe"
+      : "#e2e8f0";
 
   if (loading) {
     return <div style={styles.page}>Chargement...</div>;
@@ -443,7 +745,7 @@ export default function VueGlobaleBD() {
         <div>
           <h1 style={styles.pageTitle}>Vue globale de la base</h1>
           <p style={styles.pageSubtitle}>
-            Vision synthétique d&apos;une base surveillée : état, métriques, alertes et santé globale
+            Vision synthétique d&apos;une base surveillée : état, métriques et santé globale
           </p>
         </div>
       </div>
@@ -485,6 +787,12 @@ export default function VueGlobaleBD() {
                   <span style={styles.metaChip}>
                     <b style={styles.metaChipLabel}>Type</b> {overview.db_type_name || "-"}
                   </span>
+                  <span style={styles.metaChip}>
+                    <b style={styles.metaChipLabel}>User</b> {overview.username || "-"}
+                  </span>
+                  <span style={styles.metaChip}>
+                    <b style={styles.metaChipLabel}>Mode archivage</b> {archiveModeValue}
+                  </span>
                 </div>
               </div>
 
@@ -492,12 +800,12 @@ export default function VueGlobaleBD() {
                 <div
                   style={{
                     ...styles.statusChip,
-                    background: overview.is_active === 1 ? "#dcfce7" : "#fee2e2",
-                    color: overview.is_active === 1 ? "#166534" : "#991b1b",
-                    borderColor: overview.is_active === 1 ? "#bbf7d0" : "#fecaca",
+                    background: statusBg,
+                    color: statusColor,
+                    borderColor: statusBorder,
                   }}
                 >
-                  {overview.is_active === 1 ? "● ACTIVE" : "● INACTIVE"}
+                  ● {globalStatus}
                 </div>
               </div>
             </div>
@@ -506,7 +814,7 @@ export default function VueGlobaleBD() {
           <div
             style={{
               ...styles.kpiGridDynamic,
-              gridTemplateColumns: isMySQL ? "repeat(2, 1fr)" : "repeat(5, 1fr)",
+              gridTemplateColumns: isMySQL ? "repeat(4, 1fr)" : "repeat(4, 1fr)",
             }}
           >
             {kpiCards.map((card) => (
@@ -524,12 +832,11 @@ export default function VueGlobaleBD() {
 
           <div style={{ height: 12 }} />
 
-          <div style={styles.card}>
-            <div style={styles.sectionHeader}>
-              <span style={styles.sectionIcon}>🧠</span>
-              <span style={styles.sectionTitle}>Explication de l’indicateur sélectionné</span>
-            </div>
-
+          <CollapsibleCard
+            title="Explication de l’indicateur sélectionné"
+            isOpen={openSections.explanation}
+            onToggle={() => toggleSection("explanation")}
+          >
             <p style={styles.sectionDesc}>
               Cliquez sur une carte KPI en haut pour afficher uniquement son explication.
             </p>
@@ -538,19 +845,31 @@ export default function VueGlobaleBD() {
               <InfoDetailsCard
                 title={selectedInfoBlock.title}
                 info={selectedInfoBlock.info}
+                rawValue={
+                  openedInfoKey === "uptime_h"
+                    ? `${uptimeValue.value ?? "-"} h`
+                    : openedInfoKey === "cpu_usage"
+                    ? formatPercentValue(cpuUsageValue.value)
+                    : openedInfoKey === "ram_usage"
+                    ? formatPercentValue(ramUsageValue.value)
+                    : null
+                }
               />
             ) : (
               <div style={styles.infoBox}>
                 Sélectionnez une carte KPI pour voir son explication.
               </div>
             )}
-          </div>
+          </CollapsibleCard>
 
           <div style={{ height: 12 }} />
 
           <div style={styles.grid2}>
-            <div style={styles.card}>
-              <div style={styles.cardTitle}>Dernières métriques</div>
+            <CollapsibleCard
+              title="Dernières métriques"
+              isOpen={openSections.latestMetrics}
+              onToggle={() => toggleSection("latestMetrics")}
+            >
               {latestMetricsTable.length ? (
                 <DataTable
                   columns={["metric_code", "value", "severity", "collected_at"]}
@@ -559,10 +878,13 @@ export default function VueGlobaleBD() {
               ) : (
                 <div style={styles.infoBox}>Aucune métrique disponible.</div>
               )}
-            </div>
+            </CollapsibleCard>
 
-            <div style={styles.card}>
-              <div style={styles.cardTitle}>Valeurs numériques</div>
+            <CollapsibleCard
+              title="Valeurs numériques"
+              isOpen={openSections.numericValues}
+              onToggle={() => toggleSection("numericValues")}
+            >
               {numericMetrics.length ? (
                 <div style={{ width: "100%", height: 360 }}>
                   <ResponsiveContainer>
@@ -600,42 +922,198 @@ export default function VueGlobaleBD() {
               ) : (
                 <div style={styles.infoBox}>Aucune métrique numérique.</div>
               )}
-            </div>
+            </CollapsibleCard>
           </div>
 
           <div style={{ height: 12 }} />
 
-          <div style={styles.card}>
-            <div style={styles.cardTitle}>Métriques sensibles</div>
+          <CollapsibleCard
+            title="Métriques sensibles"
+            isOpen={openSections.sensitiveMetrics}
+            onToggle={() => toggleSection("sensitiveMetrics")}
+          >
             {sensitiveMetrics.length ? (
               <DataTable
                 columns={["metric_code", "value", "severity", "collected_at"]}
                 rows={sensitiveMetrics}
               />
             ) : (
-              <div style={styles.infoBox}>Aucune métrique sensible disponible.</div>
+              <div style={styles.infoBox}>
+                Aucune métrique sensible. Toutes les métriques sont OK ou INFO.
+              </div>
             )}
+          </CollapsibleCard>
+
+          <div style={{ height: 16 }} />
+
+          <div style={styles.monitoringHeader}>
+            <div style={styles.monitoringTitle}>Monitoring détaillé</div>
+            <div style={styles.monitoringSubtitle}>
+              Historique, exécutions et configuration de monitoring
+            </div>
           </div>
 
           <div style={{ height: 12 }} />
 
-          <div style={styles.card}>
-            <div style={styles.cardTitle}>Alertes de la base</div>
+          <CollapsibleCard
+            title="Évolution des métriques"
+            isOpen={openSections.evolution}
+            onToggle={() => toggleSection("evolution")}
+          >
+            <div style={styles.chartTopRow}>
+              <div style={styles.chartHint}>
+                Sélectionnez une métrique numérique pour afficher son évolution.
+              </div>
 
-            <div style={styles.alertKpiRow}>
-              <MiniMetric label="Total alertes" value={alertsDb.length} />
-              <MiniMetric label="Ouvertes" value={openAlerts.length} />
-              <MiniMetric label="Critiques ouvertes" value={criticalOpenAlerts.length} />
+              {chartMetricOptions.length > 0 ? (
+                <select
+                  value={selectedChartMetric}
+                  onChange={(e) => setSelectedChartMetric(e.target.value)}
+                  style={styles.chartSelect}
+                >
+                  {chartMetricOptions.map((metric) => (
+                    <option key={metric} value={metric}>
+                      {metric}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
             </div>
 
-            {alertsDbTable.length ? (
-              <DataTable
-                columns={["alert_id", "severity", "status", "title", "last_value", "created_at"]}
-                rows={alertsDbTable}
-              />
+            {!chartData.length ? (
+              <div style={styles.infoBox}>Aucune valeur numérique disponible.</div>
             ) : (
-              <div style={styles.successBox}>Aucune alerte enregistrée pour cette base.</div>
+              <>
+                <div style={styles.chartStatsRow}>
+                  <MiniMetric label="Métrique" value={selectedChartMetric || "-"} />
+                  <MiniMetric label="Dernière valeur" value={chartStats?.last ?? "-"} />
+                  <MiniMetric label="Min" value={chartStats?.min ?? "-"} />
+                  <MiniMetric label="Max" value={chartStats?.max ?? "-"} />
+                </div>
+
+                <div style={{ width: "100%", height: 320 }}>
+                  <ResponsiveContainer>
+                    <LineChart
+                      data={chartData}
+                      margin={{ top: 8, right: 20, left: 0, bottom: 8 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#dbe4f0" />
+                      <XAxis
+                        dataKey="collected_at_label"
+                        tick={{ fontSize: 11, fill: "#64748b" }}
+                        stroke="#94a3b8"
+                        minTickGap={24}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 11, fill: "#64748b" }}
+                        stroke="#94a3b8"
+                        width={52}
+                        allowDecimals={false}
+                      />
+                      <Tooltip
+                        formatter={(value) => [value, selectedChartMetric || "Valeur"]}
+                        labelFormatter={(label, payload) =>
+                          payload?.[0]?.payload?.collected_at_full || label
+                        }
+                        contentStyle={{
+                          background: "#ffffff",
+                          border: "1px solid #e2e8f0",
+                          borderRadius: 12,
+                          boxShadow: "0 10px 30px rgba(15, 23, 42, 0.08)",
+                          fontSize: 12,
+                        }}
+                      />
+                      <Legend
+                        wrapperStyle={{
+                          fontSize: 12,
+                          color: "#334155",
+                          paddingTop: 10,
+                        }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="value"
+                        name={selectedChartMetric || "Valeur"}
+                        stroke="#2563eb"
+                        strokeWidth={3}
+                        dot={{ r: 3, fill: "#2563eb", strokeWidth: 0 }}
+                        activeDot={{ r: 5 }}
+                        connectNulls
+                        isAnimationActive={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </>
             )}
+          </CollapsibleCard>
+
+          <div style={{ height: 12 }} />
+
+          <div style={styles.grid2Single}>
+            <CollapsibleCard
+              title="Historique des runs"
+              isOpen={openSections.runs}
+              onToggle={() => toggleSection("runs")}
+            >
+              {!dbRuns.length ? (
+                <div style={styles.infoBox}>Aucun run pour cette base.</div>
+              ) : (
+                <DataTable
+                  columns={[
+                    "run_id",
+                    "metric_code",
+                    "status",
+                    "duration_ms",
+                    "started_at",
+                    "ended_at",
+                    "error_message",
+                  ]}
+                  rows={[...dbRuns]
+                    .map((r) => ({
+                      ...r,
+                      metric_code: metricMap[String(r.metric_id)] || "?",
+                      started_at: formatDateTime(r.started_at),
+                      ended_at: formatDateTime(r.ended_at),
+                    }))
+                    .sort((a, b) => Number(b.run_id || 0) - Number(a.run_id || 0))
+                    .slice(0, 20)}
+                />
+              )}
+            </CollapsibleCard>
+
+            <CollapsibleCard
+              title="Métriques configurées"
+              isOpen={openSections.configuredMetrics}
+              onToggle={() => toggleSection("configuredMetrics")}
+            >
+              {!compatibleMetrics.length ? (
+                <div style={styles.infoBox}>Aucune métrique active pour ce type de base.</div>
+              ) : (
+                compatibleMetrics.map((m) => (
+                  <div key={m.metric_id} style={styles.metricRow}>
+                    <div>
+                      <div style={styles.metricCode}>{m.metric_code || "—"}</div>
+                      <div style={styles.metricFreq}>
+                        Fréquence : {m.frequency_sec ?? "—"} s
+                      </div>
+                      <div style={styles.metricDbType}>
+                        Type : {dbTypeMap[String(m.db_type_id)] || "—"}
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {m.warn_threshold !== null && m.warn_threshold !== undefined ? (
+                        <span style={styles.warnChip}>⚠ WARNING : {m.warn_threshold}</span>
+                      ) : null}
+                      {m.crit_threshold !== null && m.crit_threshold !== undefined ? (
+                        <span style={styles.critChip}>🔴 CRITICAL : {m.crit_threshold}</span>
+                      ) : null}
+                    </div>
+                  </div>
+                ))
+              )}
+            </CollapsibleCard>
           </div>
         </>
       ) : (
@@ -652,6 +1130,19 @@ const tooltipStyle = {
   fontSize: 12,
   boxShadow: "0 10px 30px rgba(15,23,42,0.08)",
 };
+
+function CollapsibleCard({ title, isOpen, onToggle, children }) {
+  return (
+    <div style={styles.card}>
+      <button type="button" onClick={onToggle} style={styles.collapseButton}>
+        <span style={styles.collapseTitle}>{title}</span>
+        <span style={styles.collapseIcon}>{isOpen ? "−" : "+"}</span>
+      </button>
+
+      {isOpen ? <div style={{ marginTop: 16 }}>{children}</div> : null}
+    </div>
+  );
+}
 
 function KpiCard({
   label,
@@ -696,13 +1187,20 @@ function MiniMetric({ label, value }) {
   );
 }
 
-function InfoDetailsCard({ title, info }) {
+function InfoDetailsCard({ title, info, rawValue = null }) {
   const sqlTitle = getSqlTitleLocal(info?.sql_query);
   const sqlHint = getSqlHintLocal(info?.sql_query);
 
   return (
     <div style={styles.infoDetailsCard}>
       <div style={styles.infoDetailsTitle}>{title}</div>
+
+      {rawValue ? (
+        <div style={{ ...styles.explainCard, borderLeftColor: "#10b981" }}>
+          <div style={styles.explainLabel}>Valeur affichée</div>
+          <div style={styles.explainText}>{rawValue}</div>
+        </div>
+      ) : null}
 
       <div style={{ ...styles.explainCard, borderLeftColor: "#3b82f6" }}>
         <div style={styles.explainLabel}>Définition</div>
@@ -794,6 +1292,26 @@ function SeverityBadge({ severity }) {
       color: "#1e40af",
       borderColor: "#bfdbfe",
     },
+    OPEN: {
+      background: "#fff1f2",
+      color: "#9f1239",
+      borderColor: "#fecdd3",
+    },
+    FAILED: {
+      background: "#fff1f2",
+      color: "#9f1239",
+      borderColor: "#fecdd3",
+    },
+    SUCCESS: {
+      background: "#f0fdf4",
+      color: "#166534",
+      borderColor: "#bbf7d0",
+    },
+    RESOLVED: {
+      background: "#f8fafc",
+      color: "#475569",
+      borderColor: "#cbd5e1",
+    },
   };
 
   const style = conf[s] || {
@@ -834,7 +1352,13 @@ function DataTable({ columns, rows }) {
             <tr key={idx} style={idx % 2 === 0 ? styles.rowEven : styles.rowOdd}>
               {columns.map((col) => (
                 <td key={col} style={styles.td}>
-                  {row[col] != null && row[col] !== "" ? String(row[col]) : "—"}
+                  {col === "severity" || col === "status" ? (
+                    <SeverityBadge severity={row[col]} />
+                  ) : row[col] != null && row[col] !== "" ? (
+                    String(row[col])
+                  ) : (
+                    "—"
+                  )}
                 </td>
               ))}
             </tr>
@@ -1049,29 +1573,6 @@ const styles = {
     border: "1px solid #e2e8f0",
     boxShadow: "0 1px 3px rgba(15,23,42,0.06)",
   },
-  cardTitle: {
-    marginTop: 0,
-    marginBottom: 16,
-    fontSize: 13,
-    fontWeight: 800,
-    textTransform: "uppercase",
-    letterSpacing: "0.07em",
-    color: "#64748b",
-  },
-  sectionHeader: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 6,
-  },
-  sectionIcon: {
-    fontSize: 22,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 800,
-    color: "#0f172a",
-  },
   sectionDesc: {
     fontSize: 14,
     color: "#64748b",
@@ -1191,6 +1692,10 @@ const styles = {
     gridTemplateColumns: "1.35fr 1.05fr",
     gap: 16,
   },
+  grid2Single: {
+    display: "grid",
+    gap: 16,
+  },
   infoBox: {
     background: "#eff6ff",
     border: "1px solid #bfdbfe",
@@ -1198,20 +1703,6 @@ const styles = {
     padding: "14px 16px",
     color: "#1d4ed8",
     fontWeight: 700,
-  },
-  successBox: {
-    background: "#f0fdf4",
-    border: "1px solid #bbf7d0",
-    borderRadius: 12,
-    padding: "14px 16px",
-    color: "#166534",
-    fontWeight: 800,
-  },
-  alertKpiRow: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr 1fr",
-    gap: 12,
-    marginBottom: 14,
   },
   miniMetric: {
     background: "#f8fafc",
@@ -1264,5 +1755,103 @@ const styles = {
   },
   rowOdd: {
     background: "#fbfdff",
+  },
+  monitoringHeader: {
+    marginTop: 6,
+    marginBottom: 2,
+  },
+  monitoringTitle: {
+    fontSize: 22,
+    fontWeight: 900,
+    color: "#0f172a",
+    letterSpacing: "-0.02em",
+  },
+  monitoringSubtitle: {
+    fontSize: 14,
+    color: "#64748b",
+    marginTop: 4,
+  },
+  chartTopRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    flexWrap: "wrap",
+    marginBottom: 14,
+  },
+  chartHint: {
+    fontSize: 13,
+    color: "#64748b",
+  },
+  chartSelect: {
+    minWidth: 240,
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "1px solid #cbd5e1",
+    background: "#fff",
+    fontSize: 14,
+    color: "#0f172a",
+  },
+  chartStatsRow: {
+    display: "grid",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gap: 12,
+    marginBottom: 14,
+  },
+  metricRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    padding: "0.9rem 0",
+    borderBottom: "1px solid #f1f5f9",
+  },
+  metricCode: {
+    fontSize: 14,
+    fontWeight: 800,
+    color: "#0f172a",
+  },
+  metricFreq: {
+    fontSize: 12,
+    color: "#94a3b8",
+    marginTop: 4,
+  },
+  metricDbType: {
+    fontSize: 12,
+    color: "#64748b",
+    marginTop: 4,
+  },
+  collapseButton: {
+    width: "100%",
+    background: "transparent",
+    border: "none",
+    padding: 0,
+    margin: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    cursor: "pointer",
+    textAlign: "left",
+  },
+  collapseTitle: {
+    fontSize: 16,
+    fontWeight: 800,
+    color: "#0f172a",
+  },
+  collapseIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 9999,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "#f8fafc",
+    border: "1px solid #e2e8f0",
+    color: "#334155",
+    fontWeight: 900,
+    fontSize: 18,
+    lineHeight: 1,
+    flexShrink: 0,
   },
 };

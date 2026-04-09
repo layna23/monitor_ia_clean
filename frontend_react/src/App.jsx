@@ -3,7 +3,6 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import Login from "./pages/Login";
 import Accueil from "./pages/Accueil";
-import BasesSurveillees from "./pages/BasesSurveillees";
 import ConfigurationMetriques from "./pages/ConfigurationMetriques";
 import Alertes from "./pages/Alertes";
 import Utilisateurs from "./pages/Utilisateurs";
@@ -34,7 +33,10 @@ function App() {
         <Route path="/config-bd" element={<ConfigBD />} />
         <Route path="/db-types" element={<DbTypes />} />
         <Route path="/test-db" element={<TestDB />} />
-        <Route path="/bases-surveillees" element={<BasesSurveillees />} />
+
+        {/* ancienne route redirigée vers la nouvelle vue unique */}
+        <Route path="/bases-surveillees" element={<Navigate to="/vue-globale-bd" replace />} />
+
         <Route path="/configuration-metriques" element={<ConfigurationMetriques />} />
         <Route path="/alertes" element={<Alertes />} />
         <Route path="/utilisateurs" element={<Utilisateurs />} />

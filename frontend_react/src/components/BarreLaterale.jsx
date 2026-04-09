@@ -3,9 +3,7 @@ import { NavLink } from "react-router-dom";
 const menuGroups = [
   {
     group: null,
-    items: [
-      { label: "Accueil", path: "/accueil" },
-    ],
+    items: [{ label: "Accueil", path: "/accueil" }],
   },
   {
     group: "PARAMÉTRAGE",
@@ -21,11 +19,9 @@ const menuGroups = [
     items: [
       { label: "Dashboard", path: "/dashboard" },
       { label: "Vue globale des bases", path: "/vue-globale-bd" },
-      { label: "Bases surveillées", path: "/bases-surveillees" },
       { label: "Alertes", path: "/alertes" },
       { label: "Analyseur SQL", path: "/analyseur-sql" },
       { label: "Diagnostic IA", path: null, soon: true },
-      { label: "Test connexion DB", path: "/test-db" },
     ],
   },
   {
@@ -53,9 +49,8 @@ export default function BarreLaterale() {
       <nav style={styles.nav}>
         {menuGroups.map((group, gi) => (
           <div key={gi} style={styles.groupBlock}>
-            {group.group && (
-              <div style={styles.groupLabel}>{group.group}</div>
-            )}
+            {group.group && <div style={styles.groupLabel}>{group.group}</div>}
+
             {group.items.map((item) => {
               if (item.soon) {
                 return (
@@ -65,6 +60,7 @@ export default function BarreLaterale() {
                   </div>
                 );
               }
+
               return (
                 <NavLink
                   key={item.path}
@@ -78,18 +74,15 @@ export default function BarreLaterale() {
                 </NavLink>
               );
             })}
-            {gi < menuGroups.length - 1 && (
-              <div style={styles.groupDivider} />
-            )}
+
+            {gi < menuGroups.length - 1 && <div style={styles.groupDivider} />}
           </div>
         ))}
       </nav>
 
       <div style={styles.footer}>
         <div style={styles.divider} />
-        <button style={styles.logoutBtn}>
-          Déconnexion
-        </button>
+        <button style={styles.logoutBtn}>Déconnexion</button>
       </div>
     </aside>
   );

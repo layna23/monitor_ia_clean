@@ -2,13 +2,12 @@ from sqlalchemy import Column, String, Numeric, TIMESTAMP, ForeignKey, CLOB
 from sqlalchemy.orm import relationship
 
 from backend.database.session import Base
-from backend.models.db_type import DbType  # ✅ IMPORT IMPORTANT
+from backend.models.db_type import DbType
 
 
 class TargetDB(Base):
     __tablename__ = "TARGET_DBS"
 
-    # Clé primaire (auto-générée côté Oracle)
     db_id = Column(
         "DB_ID",
         Numeric(22, 0),
@@ -65,7 +64,6 @@ class TargetDB(Base):
         nullable=True
     )
 
-    # Defaults Python pour éviter erreurs NULL
     collect_interval_sec = Column(
         "COLLECT_INTERVAL_SEC",
         Numeric(10, 0),
@@ -86,5 +84,7 @@ class TargetDB(Base):
         nullable=True
     )
 
-    # ✅ RELATION CORRIGÉE (plus robuste)
     db_type = relationship(DbType)
+
+    # Champ logique non stocké en base pour l'instant
+    archive_mode = None

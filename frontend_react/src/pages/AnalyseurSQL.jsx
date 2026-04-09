@@ -91,9 +91,7 @@ export default function AnalyseurSQL() {
       setSqlScripts([]);
 
       if (dbList.length > 0) {
-        setSelectedDbId((prev) =>
-          prev ? prev : String(dbList[0].db_id)
-        );
+        setSelectedDbId((prev) => (prev ? prev : String(dbList[0].db_id)));
       }
     } catch {
       setMessage({ type: "error", text: "Erreur lors du chargement des données." });
@@ -480,6 +478,29 @@ export default function AnalyseurSQL() {
     return list;
   }, [sqlScripts, libSearch, libCategory]);
 
+  const planRowsFormatted = useMemo(() => {
+    const rows = Array.isArray(explainResult?.plan_rows) ? explainResult.plan_rows : [];
+    const totalCpu = rows.reduce((sum, row) => sum + (Number(row.cpu_cost) || 0), 0);
+
+    return rows.map((row) => {
+      const rawBytes = Number(row.bytes || 0);
+      const rawCpu = Number(row.cpu_cost || 0);
+
+      return {
+        plan_step: row.plan_step || "—",
+        cost: row.cost ?? "—",
+        cardinality:
+          row.cardinality !== null && row.cardinality !== undefined
+            ? `${row.cardinality} lignes`
+            : "—",
+        bytes: rawBytes > 0 ? `${(rawBytes / 1024).toFixed(1)} Ko` : "—",
+        cpu_cost:
+          totalCpu > 0 ? `${((rawCpu / totalCpu) * 100).toFixed(1)} %` : "0 %",
+        io_cost: row.io_cost ?? "—",
+      };
+    });
+  }, [explainResult]);
+
   if (loading) {
     return <div style={styles.page}>Chargement...</div>;
   }
@@ -775,7 +796,7 @@ export default function AnalyseurSQL() {
 
             <div style={{ height: 16 }} />
 
-            {(explainResult.plan_rows || []).length ? (
+            {planRowsFormatted.length ? (
               <DataTable
                 columns={[
                   "plan_step",
@@ -784,12 +805,8 @@ export default function AnalyseurSQL() {
                   "bytes",
                   "cpu_cost",
                   "io_cost",
-                  "access_predicates",
-                  "filter_predicates",
-                ].filter((c) => explainResult.plan_rows?.[0]?.[c] !== undefined)}
-                rows={(explainResult.plan_rows || []).map((r) => ({
-                  ...r,
-                }))}
+                ]}
+                rows={planRowsFormatted}
               />
             ) : (
               <InfoBox text="Aucun détail de plan disponible." />
@@ -995,6 +1012,15 @@ function InfoBox({ text }) {
 }
 
 function DataTable({ columns, rows }) {
+  const columnLabels = {
+    plan_step: "Étape du plan",
+    cost: "Coût total",
+    cardinality: "Lignes estimées",
+    bytes: "Taille estimée (Ko)",
+    cpu_cost: "CPU % estimé",
+    io_cost: "Coût E/S",
+  };
+
   return (
     <div style={styles.tableWrap}>
       <table style={styles.table}>
@@ -1002,7 +1028,7 @@ function DataTable({ columns, rows }) {
           <tr>
             {columns.map((col) => (
               <th key={col} style={styles.th}>
-                {col}
+                {columnLabels[col] || col}
               </th>
             ))}
           </tr>

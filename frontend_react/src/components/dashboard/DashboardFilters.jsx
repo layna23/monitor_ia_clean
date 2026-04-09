@@ -10,25 +10,17 @@ export default function DashboardFilters({
       <div style={styles.cardTitle}>FILTRES</div>
 
       <div style={styles.label}>Base surveillée</div>
-      <div style={styles.dbList}>
-        {allowedDbs.map((db) => {
-          const active = String(selectedDbId) === String(db.db_id);
-
-          return (
-            <button
-              key={db.db_id}
-              type="button"
-              onClick={() => setSelectedDbId(String(db.db_id))}
-              style={{
-                ...styles.dbButton,
-                ...(active ? styles.dbButtonActive : {}),
-              }}
-            >
-              {db.db_name}
-            </button>
-          );
-        })}
-      </div>
+      <select
+        value={selectedDbId}
+        onChange={(e) => setSelectedDbId(e.target.value)}
+        style={styles.select}
+      >
+        {allowedDbs.map((db) => (
+          <option key={db.db_id} value={String(db.db_id)}>
+            {db.db_name} | {db.host}:{db.port}
+          </option>
+        ))}
+      </select>
 
       <div style={{ height: 14 }} />
 
@@ -80,28 +72,16 @@ const styles = {
     color: "#334155",
     marginBottom: 8,
   },
-  dbList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 12,
-  },
-  dbButton: {
+  select: {
     width: "100%",
-    textAlign: "left",
+    padding: "0.95rem 1rem",
+    borderRadius: 12,
     border: "1px solid #cbd5e1",
     background: "#fff",
-    color: "#334155",
-    borderRadius: 12,
-    padding: "0.95rem 1rem",
     fontSize: 16,
-    fontWeight: 800,
-    cursor: "pointer",
-  },
-  dbButtonActive: {
-    background: "#eff6ff",
-    border: "1px solid #bfdbfe",
-    color: "#1d4ed8",
-    boxShadow: "0 0 0 1px rgba(59,130,246,0.08) inset",
+    color: "#0f172a",
+    boxSizing: "border-box",
+    outline: "none",
   },
   periodList: {
     display: "flex",

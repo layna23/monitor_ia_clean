@@ -82,6 +82,40 @@ def get_target_db_overview(db_id: int, db: Session = Depends(get_db)):
     if obj.db_type is not None:
         db_type_name = obj.db_type.name
 
+    archive_mode = None
+
+    if obj.db_type is not None and obj.db_type.name and obj.db_type.name.upper() == "ORACLE":
+        try:
+            import oracledb
+
+            connect_kwargs = {
+                "user": str(obj.username),
+                "password": str(obj.password_enc),
+                "host": str(obj.host),
+                "port": int(obj.port),
+            }
+
+            if obj.service_name:
+                connect_kwargs["service_name"] = str(obj.service_name)
+            elif obj.sid:
+                connect_kwargs["sid"] = str(obj.sid)
+
+            conn = oracledb.connect(**connect_kwargs)
+            cursor = conn.cursor()
+            cursor.execute("SELECT LOG_MODE FROM V$DATABASE")
+            row = cursor.fetchone()
+
+            if row:
+                archive_mode = row[0]
+                print("ARCHIVE_MODE =", archive_mode)
+
+            cursor.close()
+            conn.close()
+
+        except Exception as e:
+            print(f"ERREUR récupération archive_mode pour DB {db_id}: {e}")
+            archive_mode = None
+
     return TargetDBOverviewOut(
         db_id=int(obj.db_id),
         db_name=obj.db_name,
@@ -98,6 +132,7 @@ def get_target_db_overview(db_id: int, db: Session = Depends(get_db)):
         success_runs=success_runs,
         failed_runs=failed_runs,
         success_rate=success_rate,
+        archive_mode=archive_mode,
         latest_metrics=list(latest_map.values()),
     )
 
