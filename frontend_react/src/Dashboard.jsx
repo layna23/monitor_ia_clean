@@ -71,6 +71,24 @@ function isMysqlDb(db) {
   return dbName.includes("MYSQL") || dbTypeName.includes("MYSQL");
 }
 
+function getPeriodStartDate(selectedPeriod) {
+  const now = new Date();
+
+  if (selectedPeriod === "24h") {
+    return new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  }
+
+  if (selectedPeriod === "7j") {
+    return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  }
+
+  if (selectedPeriod === "30j") {
+    return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  }
+
+  return null;
+}
+
 export default function Dashboard() {
   const [targetDbs, setTargetDbs] = useState([]);
   const [metricDefs, setMetricDefs] = useState([]);
@@ -181,6 +199,8 @@ export default function Dashboard() {
   }, [metricDefs]);
 
   const filteredMetricValuesSelectedDb = useMemo(() => {
+    const periodStartDate = getPeriodStartDate(selectedPeriod);
+
     return metricValues
       .filter((v) => String(v.db_id) === String(selectedDbId))
       .map((v) => ({
@@ -190,8 +210,12 @@ export default function Dashboard() {
         collected_at_date: safeDate(v.collected_at),
       }))
       .filter((v) => v.collected_at_date && Number.isFinite(v.value_number_num))
+      .filter((v) => {
+        if (!periodStartDate) return true;
+        return v.collected_at_date >= periodStartDate;
+      })
       .sort((a, b) => a.collected_at_date - b.collected_at_date);
-  }, [metricValues, selectedDbId, metricMap]);
+  }, [metricValues, selectedDbId, metricMap, selectedPeriod]);
 
   const allMetrics = useMemo(() => {
     const metrics = Array.from(
