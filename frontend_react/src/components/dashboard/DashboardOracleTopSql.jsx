@@ -156,18 +156,6 @@ export default function DashboardOracleTopSql({
 }) {
   const queries = Array.isArray(topSqlData?.queries) ? topSqlData.queries : [];
 
-  const totalExecutions = queries.reduce(
-    (sum, q) => sum + (Number(q.executions) || 0),
-    0
-  );
-
-  const totalElapsed = queries.reduce(
-    (sum, q) =>
-      sum +
-      (Number(q.elapsed_time_sec ?? q.elapsed_time ?? q.elapsed_seconds) || 0),
-    0
-  );
-
   return (
     <>
       <div style={styles.sectionTitleMain}>Top 10 requêtes SQL</div>
@@ -218,8 +206,6 @@ export default function DashboardOracleTopSql({
             <div style={styles.grid4}>
               <MetricBox label="Base" value={topSqlData.db_name || "-"} />
               <MetricBox label="Requêtes trouvées" value={queries.length} />
-              <MetricBox label="Total exécutions" value={totalExecutions} />
-              <MetricBox label="Temps total (s)" value={totalElapsed} />
             </div>
 
             <div style={{ height: 16 }} />
@@ -263,7 +249,7 @@ const styles = {
   },
   grid4: {
     display: "grid",
-    gridTemplateColumns: "1fr 1fr 1fr 1fr",
+    gridTemplateColumns: "1fr 1fr",
     gap: 12,
   },
   select: {

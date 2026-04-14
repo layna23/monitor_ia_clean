@@ -131,9 +131,21 @@ export default function VueGlobaleBD() {
   }
 
   function formatPercentValue(value) {
+    if (
+      value === null ||
+      value === undefined ||
+      value === "" ||
+      value === "-" ||
+      value === "null"
+    ) {
+      return "-";
+    }
+
     const n = Number(value);
-    if (!Number.isFinite(n)) return String(value ?? "-");
-    return `${n} %`;
+
+    if (!Number.isFinite(n)) return "-";
+
+    return `${n.toFixed(2)} %`;
   }
 
   function firstNotEmpty(...values) {
@@ -149,11 +161,19 @@ export default function VueGlobaleBD() {
     return String(value || "INFO").trim().toUpperCase();
   }
 
+  function normalizeCode(code) {
+    return String(code || "")
+      .toUpperCase()
+      .replaceAll("_", " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
   function getMetricObj(latestMetrics, code) {
+    const target = normalizeCode(code);
+
     return (
-      latestMetrics.find(
-        (m) => String(m.metric_code || "").toUpperCase() === String(code).toUpperCase()
-      ) || null
+      latestMetrics.find((m) => normalizeCode(m.metric_code) === target) || null
     );
   }
 
@@ -349,15 +369,87 @@ export default function VueGlobaleBD() {
       });
   }, [latestMetrics]);
 
-  const dbRuns = useMemo(() => {
+  const compatibleMetrics = useMemo(() => {
     if (!selectedDb) return [];
-    return metricRuns.filter((r) => String(r.db_id) === String(selectedDb.db_id));
-  }, [metricRuns, selectedDb]);
+    return metricDefs.filter(
+      (m) =>
+        String(m.db_type_id) === String(selectedDb.db_type_id) &&
+        Number(m.is_active || 0) === 1
+    );
+  }, [metricDefs, selectedDb]);
 
   const dbValues = useMemo(() => {
     if (!selectedDb) return [];
     return metricValues.filter((v) => String(v.db_id) === String(selectedDb.db_id));
   }, [metricValues, selectedDb]);
+
+  const dbRuns = useMemo(() => {
+    if (!selectedDb) return [];
+
+    const runs = metricRuns
+      .filter((r) => String(r.db_id) === String(selectedDb.db_id))
+      .map((r) => {
+        const runTime =
+          safeDate(r.ended_at)?.getTime() ||
+          safeDate(r.started_at)?.getTime() ||
+          0;
+
+        const linkedValue =
+          metricValues
+            .filter(
+              (v) =>
+                String(v.db_id) === String(selectedDb.db_id) &&
+                String(v.metric_id) === String(r.metric_id)
+            )
+            .map((v) => ({
+              ...v,
+              collected_at_time: safeDate(v.collected_at)?.getTime() || 0,
+            }))
+            .sort((a, b) => {
+              const diffA = Math.abs(a.collected_at_time - runTime);
+              const diffB = Math.abs(b.collected_at_time - runTime);
+              return diffA - diffB;
+            })[0] || null;
+
+        return {
+          run_id: r.run_id,
+          metric_id: r.metric_id,
+          metric_code: metricMap[String(r.metric_id)] || "?",
+          status: r.status,
+          duration_ms: r.duration_ms,
+          started_at: r.started_at,
+          ended_at: r.ended_at,
+          value:
+            linkedValue?.value_number !== null && linkedValue?.value_number !== undefined
+              ? linkedValue.value_number
+              : linkedValue?.value_text ?? "-",
+          collected_at:
+            linkedValue?.collected_at ?? r.ended_at ?? r.started_at ?? null,
+        };
+      });
+
+    const existingMetricIds = new Set(runs.map((r) => String(r.metric_id)));
+
+    const missingRuns = compatibleMetrics
+      .filter((m) => !existingMetricIds.has(String(m.metric_id)))
+      .map((m) => ({
+        run_id: "-",
+        metric_id: m.metric_id,
+        metric_code: m.metric_code,
+        status: "NOT RUN",
+        duration_ms: "-",
+        started_at: null,
+        ended_at: null,
+        value: "-",
+        collected_at: null,
+      }));
+
+    return [...runs, ...missingRuns].sort((a, b) => {
+      const aTime = safeDate(a.collected_at)?.getTime() || 0;
+      const bTime = safeDate(b.collected_at)?.getTime() || 0;
+      return bTime - aTime;
+    });
+  }, [metricRuns, metricValues, selectedDb, metricMap, compatibleMetrics]);
 
   const globalStatus = useMemo(() => {
     if (!selectedDb) return "INACTIF";
@@ -376,15 +468,6 @@ export default function VueGlobaleBD() {
 
     return "OK";
   }, [selectedDb, latestMetrics]);
-
-  const compatibleMetrics = useMemo(() => {
-    if (!selectedDb) return [];
-    return metricDefs.filter(
-      (m) =>
-        String(m.db_type_id) === String(selectedDb.db_type_id) &&
-        Number(m.is_active || 0) === 1
-    );
-  }, [metricDefs, selectedDb]);
 
   const numericValuesPrepared = useMemo(() => {
     return dbValues
@@ -492,14 +575,14 @@ export default function VueGlobaleBD() {
 
   const cpuUsageInfo = buildMetricInfo(
     cpuUsageMetric,
-    "Pourcentage global d’utilisation CPU de la machine ou de l’instance surveillée.",
+    "Pourcentage global d'utilisation CPU de la machine ou de l'instance surveillée.",
     "Valeur exprimée en pourcentage de charge CPU."
   );
 
   const ramUsageInfo = buildMetricInfo(
     ramUsageMetric,
-    "Pourcentage global d’utilisation mémoire RAM de la machine ou de l’instance surveillée.",
-    "Valeur exprimée en pourcentage d’occupation mémoire."
+    "Pourcentage global d'utilisation mémoire RAM de la machine ou de l'instance surveillée.",
+    "Valeur exprimée en pourcentage d'occupation mémoire."
   );
 
   const threadsConnectedInfo = buildMetricInfo(
@@ -538,7 +621,10 @@ export default function VueGlobaleBD() {
         {
           key: "cpu_usage",
           label: "CPU USAGE",
-          value: formatPercentValue(cpuUsageValue.value),
+          value:
+            cpuUsageValue.value !== null && cpuUsageValue.value !== "-"
+              ? formatPercentValue(cpuUsageValue.value)
+              : "-",
           accent:
             normalizeSeverity(cpuUsageValue.severity) === "CRITICAL"
               ? COLORS.red
@@ -549,7 +635,10 @@ export default function VueGlobaleBD() {
         {
           key: "ram_usage",
           label: "RAM USAGE",
-          value: formatPercentValue(ramUsageValue.value),
+          value:
+            ramUsageValue.value !== null && ramUsageValue.value !== "-"
+              ? formatPercentValue(ramUsageValue.value)
+              : "-",
           accent:
             normalizeSeverity(ramUsageValue.severity) === "CRITICAL"
               ? COLORS.red
@@ -621,7 +710,10 @@ export default function VueGlobaleBD() {
       {
         key: "cpu_usage",
         label: "CPU USAGE",
-        value: formatPercentValue(cpuUsageValue.value),
+        value:
+          cpuUsageValue.value !== null && cpuUsageValue.value !== "-"
+            ? formatPercentValue(cpuUsageValue.value)
+            : "-",
         accent:
           normalizeSeverity(cpuUsageValue.severity) === "CRITICAL"
             ? COLORS.red
@@ -632,7 +724,10 @@ export default function VueGlobaleBD() {
       {
         key: "ram_usage",
         label: "RAM USAGE",
-        value: formatPercentValue(ramUsageValue.value),
+        value:
+          ramUsageValue.value !== null && ramUsageValue.value !== "-"
+            ? formatPercentValue(ramUsageValue.value)
+            : "-",
         accent:
           normalizeSeverity(ramUsageValue.severity) === "CRITICAL"
             ? COLORS.red
@@ -739,6 +834,8 @@ export default function VueGlobaleBD() {
     return <div style={styles.page}>Impossible de charger la vue globale.</div>;
   }
 
+  const kpiColumns = isMySQL ? 4 : Math.min(kpiCards.length, 4);
+
   return (
     <div style={styles.page}>
       <div style={styles.headerTop}>
@@ -793,6 +890,11 @@ export default function VueGlobaleBD() {
                   <span style={styles.metaChip}>
                     <b style={styles.metaChipLabel}>Mode archivage</b> {archiveModeValue}
                   </span>
+                  {openAlerts.length > 0 ? (
+                    <span style={styles.metaChip}>
+                      <b style={styles.metaChipLabel}>Alertes ouvertes</b> {openAlerts.length}
+                    </span>
+                  ) : null}
                 </div>
               </div>
 
@@ -814,7 +916,7 @@ export default function VueGlobaleBD() {
           <div
             style={{
               ...styles.kpiGridDynamic,
-              gridTemplateColumns: isMySQL ? "repeat(4, 1fr)" : "repeat(4, 1fr)",
+              gridTemplateColumns: `repeat(${kpiColumns}, 1fr)`,
             }}
           >
             {kpiCards.map((card) => (
@@ -833,7 +935,7 @@ export default function VueGlobaleBD() {
           <div style={{ height: 12 }} />
 
           <CollapsibleCard
-            title="Explication de l’indicateur sélectionné"
+            title="Explication de l'indicateur sélectionné"
             isOpen={openSections.explanation}
             onToggle={() => toggleSection("explanation")}
           >
@@ -1063,21 +1165,24 @@ export default function VueGlobaleBD() {
                   columns={[
                     "run_id",
                     "metric_code",
+                    "value",
                     "status",
                     "duration_ms",
                     "started_at",
                     "ended_at",
-                    "error_message",
                   ]}
-                  rows={[...dbRuns]
-                    .map((r) => ({
-                      ...r,
-                      metric_code: metricMap[String(r.metric_id)] || "?",
-                      started_at: formatDateTime(r.started_at),
-                      ended_at: formatDateTime(r.ended_at),
-                    }))
-                    .sort((a, b) => Number(b.run_id || 0) - Number(a.run_id || 0))
-                    .slice(0, 20)}
+                  rows={dbRuns.map((r) => ({
+                    run_id: r.run_id,
+                    metric_code: r.metric_code,
+                    value: r.value ?? "-",
+                    status: r.status,
+                    duration_ms:
+                      r.duration_ms !== null && r.duration_ms !== undefined
+                        ? r.duration_ms
+                        : "-",
+                    started_at: r.started_at ? formatDateTime(r.started_at) : "-",
+                    ended_at: r.ended_at ? formatDateTime(r.ended_at) : "-",
+                  }))}
                 />
               )}
             </CollapsibleCard>
@@ -1171,7 +1276,7 @@ function KpiCard({
       {subtitle ? <div style={styles.kpiSub}>{subtitle}</div> : null}
       {clickable ? (
         <div style={styles.kpiHint}>
-          {active ? "Cliquer pour masquer l’explication" : "Cliquer pour voir l’explication"}
+          {active ? "Cliquer pour masquer l'explication" : "Cliquer pour voir l'explication"}
         </div>
       ) : null}
     </button>
@@ -1311,6 +1416,11 @@ function SeverityBadge({ severity }) {
       background: "#f8fafc",
       color: "#475569",
       borderColor: "#cbd5e1",
+    },
+    "NOT RUN": {
+      background: "#f8fafc",
+      color: "#64748b",
+      borderColor: "#e2e8f0",
     },
   };
 

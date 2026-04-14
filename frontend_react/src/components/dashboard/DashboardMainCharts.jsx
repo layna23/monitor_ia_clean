@@ -10,6 +10,30 @@ import {
 } from "recharts";
 import { SectionCard, FieldLabel, InfoBox } from "./DashboardCommon";
 
+function CustomMainChartTooltip({ active, payload, label }) {
+  if (!active || !payload || !payload.length) return null;
+
+  return (
+    <div style={styles.tooltipBox}>
+      <div style={styles.tooltipLabel}>{label || "-"}</div>
+
+      {payload.map((entry, index) => (
+        <div key={`${entry.dataKey}-${index}`} style={styles.tooltipRow}>
+          <span
+            style={{
+              ...styles.tooltipDot,
+              background: entry.color || entry.stroke || "#334155",
+            }}
+          />
+          <span style={{ color: entry.color || entry.stroke || "#334155" }}>
+            {entry.name} : <strong>{entry.value ?? "-"}</strong>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function DashboardMainCharts({
   selectedDbIsMysql = false,
   allMetrics = [],
@@ -22,6 +46,8 @@ export default function DashboardMainCharts({
   prettifyMetricLabel = (x) => x,
   combinedOracleMetricKey = "__SESSIONS_COMPARISON__",
 }) {
+  const isCombinedOracleMetric = selectedMetric === combinedOracleMetricKey;
+
   return (
     <SectionCard>
       <div style={styles.cardTitle}>
@@ -82,17 +108,10 @@ export default function DashboardMainCharts({
                     tick={{ fontSize: 11, fill: "#64748b" }}
                     stroke="#94a3b8"
                     width={42}
+                    allowDecimals={false}
                   />
 
-                  <Tooltip
-                    contentStyle={{
-                      background: "#ffffff",
-                      border: "1px solid #e2e8f0",
-                      borderRadius: 12,
-                      fontSize: 12,
-                      boxShadow: "0 10px 30px rgba(15,23,42,0.08)",
-                    }}
-                  />
+                  <Tooltip content={<CustomMainChartTooltip />} />
 
                   <Legend
                     wrapperStyle={{
@@ -102,20 +121,25 @@ export default function DashboardMainCharts({
                     }}
                   />
 
-                  {mainChartLines.map((line) => (
-                    <Line
-                      key={line.key}
-                      type="monotone"
-                      dataKey={line.key}
-                      name={line.name}
-                      stroke={line.stroke}
-                      strokeWidth={2.8}
-                      dot={false}
-                      activeDot={{ r: 4 }}
-                      connectNulls
-                      strokeDasharray={line.strokeDasharray || "0"}
-                    />
-                  ))}
+                  {mainChartLines.map((line) => {
+                    const isActiveSessions = line.key === "ACTIVE_SESSIONS";
+                    const isSessionCount = line.key === "SESSION_COUNT";
+
+                    return (
+                      <Line
+                        key={line.key}
+                        type="monotone"
+                        dataKey={line.key}
+                        name={line.name}
+                        stroke={line.stroke}
+                        strokeWidth={2.8}
+                        dot={isCombinedOracleMetric ? false : { r: 3 }}
+                        activeDot={{ r: isActiveSessions ? 5 : 4 }}
+                        connectNulls
+                        strokeDasharray={isSessionCount ? "6 4" : line.strokeDasharray || "0"}
+                      />
+                    );
+                  })}
                 </LineChart>
               </ResponsiveContainer>
             )}
@@ -165,5 +189,29 @@ const styles = {
     border: "1px solid #bfdbfe",
     color: "#1d4ed8",
     fontWeight: 700,
+  },
+  tooltipBox: {
+    background: "#ffffff",
+    border: "1px solid #e2e8f0",
+    borderRadius: 12,
+    fontSize: 12,
+    boxShadow: "0 10px 30px rgba(15,23,42,0.08)",
+    padding: "10px 12px",
+  },
+  tooltipLabel: {
+    marginBottom: 8,
+    color: "#475569",
+    fontWeight: 700,
+  },
+  tooltipRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 6,
+  },
+  tooltipDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
   },
 };

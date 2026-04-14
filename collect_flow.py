@@ -15,53 +15,20 @@ logging.basicConfig(
 )
 
 
-DB_CATEGORIES = {
-    "ORACLE": {
-        "SESSIONS": {
-            "ACTIVE_SESSIONS",
-            "SESSION_COUNT",
-            "TOTAL_SESSIONS",
-            "LOCKED_OBJECTS",
-            "ACTIVE_TRANSACTIONS",
-        },
-        "STATUT": {
-            "DB_STATUS",
-            "DB_INFO",
-        },
-        "PERFORMANCE": {
-            "CPU_USED_SESSION",
-            "INSTANCE_UPTIME_HOURS",
-            "CPU_USAGE",
-            "RAM_USAGE",
-        },
-        "AUTRES": {
-            "TEST_METRIC_02",
-        },
-    }
-}
+def normalize_category(value: str) -> str:
+    return str(value or "").strip().upper()
 
 
-def get_metric_category(db_type_code: str, metric_code: str) -> str:
-    db_type_code = str(db_type_code or "").strip().upper()
-    metric_code = str(metric_code or "").strip().upper()
-
-    categories = DB_CATEGORIES.get(db_type_code, {})
-    for category_name, metric_codes in categories.items():
-        if metric_code in metric_codes:
-            return category_name
-    return "AUTRES"
-
-
-def collect_db_category(db_name_filter: str, db_type_filter: str, category_name: str):
+def collect_db_category(category_name: str):
     logger = get_run_logger()
     app_db = SessionLocal()
     results = []
 
+    category_name = normalize_category(category_name)
+
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     logger.info(
-        "[FLOW-START] DB=%s | TYPE=%s | CATEGORIE=%s",
-        db_name_filter,
-        db_type_filter,
+        "[FLOW-START] CATEGORIE=%s",
         category_name,
     )
 
@@ -84,62 +51,59 @@ def collect_db_category(db_name_filter: str, db_type_filter: str, category_name:
             .all()
         )
 
-        selected_dbs = [
-            db for db in target_dbs
-            if db_type_map.get(int(db.db_type_id), "") == db_type_filter
-            and str(db.db_name or "").strip().upper() == db_name_filter.strip().upper()
-        ]
-
         logger.info(
-            "[FLOW-INFO] Bases actives trouvées | DB=%s | TYPE=%s | COUNT=%s",
-            db_name_filter,
-            db_type_filter,
-            len(selected_dbs),
+            "[FLOW-INFO] Bases actives trouvées | CATEGORIE=%s | COUNT=%s",
+            category_name,
+            len(target_dbs),
         )
 
-        if not selected_dbs:
+        if not target_dbs:
             logger.warning(
-                "[FLOW-WARN] Aucune base active trouvée pour DB=%s | TYPE=%s",
-                db_name_filter,
-                db_type_filter,
+                "[FLOW-WARN] Aucune base active trouvée | CATEGORIE=%s",
+                category_name,
             )
             return results
 
-        for db in selected_dbs:
+        for db in target_dbs:
+            db_type_code = db_type_map.get(int(db.db_type_id), "UNKNOWN")
+
             logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             logger.info(
                 "[DB] db_id=%s | db_name=%s | db_type=%s",
                 db.db_id,
                 db.db_name,
-                db_type_filter,
+                db_type_code,
             )
 
             compatible_metrics = [
                 metric for metric in metric_defs
                 if int(metric.db_type_id) == int(db.db_type_id)
-                and get_metric_category(db_type_filter, metric.metric_code) == category_name
+                and normalize_category(metric.category) == category_name
             ]
 
             logger.info(
-                "[DB] Métriques compatibles | DB=%s | CATEGORIE=%s | COUNT=%s",
+                "[DB] Métriques compatibles | DB=%s | TYPE=%s | CATEGORIE=%s | COUNT=%s",
                 db.db_name,
+                db_type_code,
                 category_name,
                 len(compatible_metrics),
             )
 
             if not compatible_metrics:
                 logger.warning(
-                    "[FLOW-WARN] Aucune métrique active | DB=%s | CATEGORIE=%s",
+                    "[FLOW-WARN] Aucune métrique active | DB=%s | TYPE=%s | CATEGORIE=%s",
                     db.db_name,
+                    db_type_code,
                     category_name,
                 )
                 continue
 
             for metric in compatible_metrics:
                 logger.info(
-                    "[METRIC] categorie=%s | DB=%s | metric=%s | frequency=%ss",
+                    "[METRIC] categorie=%s | DB=%s | TYPE=%s | metric=%s | frequency=%ss",
                     category_name,
                     db.db_name,
+                    db_type_code,
                     metric.metric_code,
                     metric.frequency_sec,
                 )
@@ -151,9 +115,10 @@ def collect_db_category(db_name_filter: str, db_type_filter: str, category_name:
                     frequency_sec=int(metric.frequency_sec),
                 ):
                     logger.info(
-                        "[LAUNCH] categorie=%s | DB=%s | metric=%s -> COLLECTE EN COURS",
+                        "[LAUNCH] categorie=%s | DB=%s | TYPE=%s | metric=%s -> COLLECTE EN COURS",
                         category_name,
                         db.db_name,
+                        db_type_code,
                         metric.metric_code,
                     )
 
@@ -164,9 +129,10 @@ def collect_db_category(db_name_filter: str, db_type_filter: str, category_name:
                     )
 
                     logger.info(
-                        "[QUERY] categorie=%s | DB=%s | metric=%s | sql=%s",
+                        "[QUERY] categorie=%s | DB=%s | TYPE=%s | metric=%s | sql=%s",
                         category_name,
                         db.db_name,
+                        db_type_code,
                         metric.metric_code,
                         result.get("sql_query", "N/A"),
                     )
@@ -177,9 +143,10 @@ def collect_db_category(db_name_filter: str, db_type_filter: str, category_name:
                             value_label = result.get("value_text", "N/A")
 
                         logger.info(
-                            "[RESULT] categorie=%s | DB=%s | metric=%s | raw=%s | value=%s | severity=%s | duration_ms=%s",
+                            "[RESULT] categorie=%s | DB=%s | TYPE=%s | metric=%s | raw=%s | value=%s | severity=%s | duration_ms=%s",
                             category_name,
                             db.db_name,
+                            db_type_code,
                             metric.metric_code,
                             result.get("raw_row", "N/A"),
                             value_label,
@@ -188,16 +155,18 @@ def collect_db_category(db_name_filter: str, db_type_filter: str, category_name:
                         )
 
                         logger.info(
-                            "[DONE] categorie=%s | DB=%s | metric=%s | status=SUCCESS",
+                            "[DONE] categorie=%s | DB=%s | TYPE=%s | metric=%s | status=SUCCESS",
                             category_name,
                             db.db_name,
+                            db_type_code,
                             metric.metric_code,
                         )
                     else:
                         logger.error(
-                            "[FAIL] categorie=%s | DB=%s | metric=%s | sql=%s | error=%s",
+                            "[FAIL] categorie=%s | DB=%s | TYPE=%s | metric=%s | sql=%s | error=%s",
                             category_name,
                             db.db_name,
+                            db_type_code,
                             metric.metric_code,
                             result.get("sql_query", "N/A"),
                             result.get("error", "N/A"),
@@ -206,9 +175,10 @@ def collect_db_category(db_name_filter: str, db_type_filter: str, category_name:
                     results.append(result)
                 else:
                     logger.warning(
-                        "[SKIP] Fréquence non atteinte -> categorie=%s | DB=%s | metric=%s",
+                        "[SKIP] Fréquence non atteinte -> categorie=%s | DB=%s | TYPE=%s | metric=%s",
                         category_name,
                         db.db_name,
+                        db_type_code,
                         metric.metric_code,
                     )
 
@@ -218,9 +188,7 @@ def collect_db_category(db_name_filter: str, db_type_filter: str, category_name:
 
         logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         logger.info(
-            "[FLOW-END] DB=%s | TYPE=%s | CATEGORIE=%s",
-            db_name_filter,
-            db_type_filter,
+            "[FLOW-END] CATEGORIE=%s",
             category_name,
         )
         logger.info("[FLOW-END] total_lancées = %s", len(results))
@@ -233,189 +201,99 @@ def collect_db_category(db_name_filter: str, db_type_filter: str, category_name:
     finally:
         app_db.close()
         logger.info(
-            "[FLOW-END] Session fermée | DB=%s | TYPE=%s | CATEGORIE=%s",
-            db_name_filter,
-            db_type_filter,
+            "[FLOW-END] Session fermée | CATEGORIE=%s",
             category_name,
         )
 
 
-@task(name="collecte oracle sessions")
-def collect_oracle_sessions_task():
+@task(name="collecte sessions")
+def collect_sessions_task():
     logger = get_run_logger()
-    logger.info("[TASK-START] Oracle Sessions")
-    results = collect_db_category("LOCAL_19C", "ORACLE", "SESSIONS")
-    logger.info("[TASK-END] Oracle Sessions | results=%s", len(results))
+    logger.info("[TASK-START] Sessions")
+    results = collect_db_category("SESSIONS")
+    logger.info("[TASK-END] Sessions | results=%s", len(results))
     return results
 
 
-@task(name="collecte oracle statut")
-def collect_oracle_statut_task():
+@task(name="collecte statut")
+def collect_statut_task():
     logger = get_run_logger()
-    logger.info("[TASK-START] Oracle Statut")
-    results = collect_db_category("LOCAL_19C", "ORACLE", "STATUT")
-    logger.info("[TASK-END] Oracle Statut | results=%s", len(results))
+    logger.info("[TASK-START] Statut")
+    results = collect_db_category("STATUT")
+    logger.info("[TASK-END] Statut | results=%s", len(results))
     return results
 
 
-@task(name="collecte oracle performance")
-def collect_oracle_performance_task():
+@task(name="collecte performance")
+def collect_performance_task():
     logger = get_run_logger()
-    logger.info("[TASK-START] Oracle Performance")
-    results = collect_db_category("LOCAL_19C", "ORACLE", "PERFORMANCE")
-    logger.info("[TASK-END] Oracle Performance | results=%s", len(results))
+    logger.info("[TASK-START] Performance")
+    results = collect_db_category("PERFORMANCE")
+    logger.info("[TASK-END] Performance | results=%s", len(results))
     return results
 
 
-@task(name="collecte oracle autres")
-def collect_oracle_autres_task():
+@task(name="collecte autres")
+def collect_autres_task():
     logger = get_run_logger()
-    logger.info("[TASK-START] Oracle Autres")
-    results = collect_db_category("LOCAL_19C", "ORACLE", "AUTRES")
-    logger.info("[TASK-END] Oracle Autres | results=%s", len(results))
+    logger.info("[TASK-START] Autres")
+    results = collect_db_category("AUTRES")
+    logger.info("[TASK-END] Autres | results=%s", len(results))
     return results
 
 
-@task(name="collecte oracle schema sessions")
-def collect_oracle_schema_sessions_task():
+@flow(name="Collect Sessions Flow")
+def collect_sessions_flow():
     logger = get_run_logger()
-    logger.info("[TASK-START] Oracle Schema Sessions")
-    results = collect_db_category("LOCAL_19C_SCHEMA", "ORACLE", "SESSIONS")
-    logger.info("[TASK-END] Oracle Schema Sessions | results=%s", len(results))
+    logger.info("[FLOW] Démarrage -> Sessions")
+    results = collect_sessions_task()
+    logger.info("[FLOW] Terminé -> Sessions | results=%s", len(results))
     return results
 
 
-@task(name="collecte oracle schema statut")
-def collect_oracle_schema_statut_task():
+@flow(name="Collect Statut Flow")
+def collect_statut_flow():
     logger = get_run_logger()
-    logger.info("[TASK-START] Oracle Schema Statut")
-    results = collect_db_category("LOCAL_19C_SCHEMA", "ORACLE", "STATUT")
-    logger.info("[TASK-END] Oracle Schema Statut | results=%s", len(results))
+    logger.info("[FLOW] Démarrage -> Statut")
+    results = collect_statut_task()
+    logger.info("[FLOW] Terminé -> Statut | results=%s", len(results))
     return results
 
 
-@task(name="collecte oracle schema performance")
-def collect_oracle_schema_performance_task():
+@flow(name="Collect Performance Flow")
+def collect_performance_flow():
     logger = get_run_logger()
-    logger.info("[TASK-START] Oracle Schema Performance")
-    results = collect_db_category("LOCAL_19C_SCHEMA", "ORACLE", "PERFORMANCE")
-    logger.info("[TASK-END] Oracle Schema Performance | results=%s", len(results))
+    logger.info("[FLOW] Démarrage -> Performance")
+    results = collect_performance_task()
+    logger.info("[FLOW] Terminé -> Performance | results=%s", len(results))
     return results
 
 
-@task(name="collecte oracle schema autres")
-def collect_oracle_schema_autres_task():
+@flow(name="Collect Autres Flow")
+def collect_autres_flow():
     logger = get_run_logger()
-    logger.info("[TASK-START] Oracle Schema Autres")
-    results = collect_db_category("LOCAL_19C_SCHEMA", "ORACLE", "AUTRES")
-    logger.info("[TASK-END] Oracle Schema Autres | results=%s", len(results))
-    return results
-
-
-@flow(name="Collect Oracle Sessions Flow")
-def collect_oracle_sessions_flow():
-    logger = get_run_logger()
-    logger.info("[FLOW] Démarrage -> Oracle Sessions")
-    results = collect_oracle_sessions_task()
-    logger.info("[FLOW] Terminé -> Oracle Sessions | results=%s", len(results))
-    return results
-
-
-@flow(name="Collect Oracle Statut Flow")
-def collect_oracle_statut_flow():
-    logger = get_run_logger()
-    logger.info("[FLOW] Démarrage -> Oracle Statut")
-    results = collect_oracle_statut_task()
-    logger.info("[FLOW] Terminé -> Oracle Statut | results=%s", len(results))
-    return results
-
-
-@flow(name="Collect Oracle Performance Flow")
-def collect_oracle_performance_flow():
-    logger = get_run_logger()
-    logger.info("[FLOW] Démarrage -> Oracle Performance")
-    results = collect_oracle_performance_task()
-    logger.info("[FLOW] Terminé -> Oracle Performance | results=%s", len(results))
-    return results
-
-
-@flow(name="Collect Oracle Autres Flow")
-def collect_oracle_autres_flow():
-    logger = get_run_logger()
-    logger.info("[FLOW] Démarrage -> Oracle Autres")
-    results = collect_oracle_autres_task()
-    logger.info("[FLOW] Terminé -> Oracle Autres | results=%s", len(results))
-    return results
-
-
-@flow(name="Collect Oracle Schema Sessions Flow")
-def collect_oracle_schema_sessions_flow():
-    logger = get_run_logger()
-    logger.info("[FLOW] Démarrage -> Oracle Schema Sessions")
-    results = collect_oracle_schema_sessions_task()
-    logger.info("[FLOW] Terminé -> Oracle Schema Sessions | results=%s", len(results))
-    return results
-
-
-@flow(name="Collect Oracle Schema Statut Flow")
-def collect_oracle_schema_statut_flow():
-    logger = get_run_logger()
-    logger.info("[FLOW] Démarrage -> Oracle Schema Statut")
-    results = collect_oracle_schema_statut_task()
-    logger.info("[FLOW] Terminé -> Oracle Schema Statut | results=%s", len(results))
-    return results
-
-
-@flow(name="Collect Oracle Schema Performance Flow")
-def collect_oracle_schema_performance_flow():
-    logger = get_run_logger()
-    logger.info("[FLOW] Démarrage -> Oracle Schema Performance")
-    results = collect_oracle_schema_performance_task()
-    logger.info("[FLOW] Terminé -> Oracle Schema Performance | results=%s", len(results))
-    return results
-
-
-@flow(name="Collect Oracle Schema Autres Flow")
-def collect_oracle_schema_autres_flow():
-    logger = get_run_logger()
-    logger.info("[FLOW] Démarrage -> Oracle Schema Autres")
-    results = collect_oracle_schema_autres_task()
-    logger.info("[FLOW] Terminé -> Oracle Schema Autres | results=%s", len(results))
+    logger.info("[FLOW] Démarrage -> Autres")
+    results = collect_autres_task()
+    logger.info("[FLOW] Terminé -> Autres | results=%s", len(results))
     return results
 
 
 if __name__ == "__main__":
     serve(
-        collect_oracle_sessions_flow.to_deployment(
-            name="collect-oracle-sessions-local-19c",
+        collect_sessions_flow.to_deployment(
+            name="collect-sessions-all-active-dbs",
             interval=300,
         ),
-        collect_oracle_statut_flow.to_deployment(
-            name="collect-oracle-statut-local-19c",
+        collect_statut_flow.to_deployment(
+            name="collect-statut-all-active-dbs",
             interval=300,
         ),
-        collect_oracle_performance_flow.to_deployment(
-            name="collect-oracle-performance-local-19c",
+        collect_performance_flow.to_deployment(
+            name="collect-performance-all-active-dbs",
             interval=300,
         ),
-        collect_oracle_autres_flow.to_deployment(
-            name="collect-oracle-autres-local-19c",
-            interval=300,
-        ),
-        collect_oracle_schema_sessions_flow.to_deployment(
-            name="collect-oracle-schema-sessions-local-19c-schema",
-            interval=300,
-        ),
-        collect_oracle_schema_statut_flow.to_deployment(
-            name="collect-oracle-schema-statut-local-19c-schema",
-            interval=300,
-        ),
-        collect_oracle_schema_performance_flow.to_deployment(
-            name="collect-oracle-schema-performance-local-19c-schema",
-            interval=300,
-        ),
-        collect_oracle_schema_autres_flow.to_deployment(
-            name="collect-oracle-schema-autres-local-19c-schema",
+        collect_autres_flow.to_deployment(
+            name="collect-autres-all-active-dbs",
             interval=300,
         ),
     )

@@ -15,6 +15,9 @@ class MetricDefBase(BaseModel):
     is_active: int = 1
     sql_query: str
 
+    # ✅ nouveau champ
+    category: Optional[str] = Field(default="AUTRES", max_length=50)
+
 
 class MetricDefCreate(MetricDefBase):
     pass
@@ -31,6 +34,9 @@ class MetricDefUpdate(BaseModel):
 
     is_active: Optional[int] = None
     sql_query: Optional[str] = None
+
+    # ✅ nouveau champ
+    category: Optional[str] = Field(default=None, max_length=50)
 
 
 class MetricDefOut(MetricDefBase):

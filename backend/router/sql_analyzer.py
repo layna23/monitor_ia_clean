@@ -1,45 +1,31 @@
 # backend/router/sql_analyzer.py
 """
-Deux préfixes :
-  /sql-scripts/   → CRUD des scripts sauvegardés
-  /sql-analyzer/  → EXPLAIN PLAN + exécution
+Préfixe principal :
+  /sql-analyzer/  → liste des métriques SQL collectées + import ZIP + EXPLAIN PLAN + exécution
 """
+import os
+import re
 import time
+import zipfile
+import tempfile
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.database.session import get_db
-from backend.models.sql_script import SqlScript
+from backend.models.metric_def import MetricDef
+from backend.models.metric_value import MetricValue
 from backend.models.target_db import TargetDB
 
 router = APIRouter(tags=["SQL Analyzer"])
 
 
 # ── Schémas Pydantic ──────────────────────────────────────────────────────────
-
-class SqlScriptCreate(BaseModel):
-    script_name: str
-    description: Optional[str] = None
-    category: Optional[str] = None
-    db_type: Optional[str] = "ORACLE"
-    sql_content: str
-    is_active: Optional[int] = 1
-
-
-class SqlScriptUpdate(BaseModel):
-    script_name: Optional[str] = None
-    description: Optional[str] = None
-    category: Optional[str] = None
-    db_type: Optional[str] = None
-    sql_content: Optional[str] = None
-    is_active: Optional[int] = None
-
 
 class ExplainRequest(BaseModel):
     db_id: int
@@ -52,96 +38,220 @@ class ExecuteRequest(BaseModel):
     max_rows: Optional[int] = 100
 
 
+# ── Helpers import ZIP ────────────────────────────────────────────────────────
+
+def _read_sql_file_content(file_path: str) -> str:
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except UnicodeDecodeError:
+        with open(file_path, "r", encoding="latin-1") as f:
+            return f.read()
+
+
+def _slug_metric_code(filename: str) -> str:
+    base = os.path.splitext(filename)[0].upper().strip()
+    base = re.sub(r"[^A-Z0-9]+", "_", base)
+    base = re.sub(r"_+", "_", base).strip("_")
+    return base[:50] if base else "SQL_METRIC"
+
+
+def _next_metric_code(db: Session, raw_code: str) -> str:
+    candidate = raw_code[:50]
+    exists = db.query(MetricDef).filter(MetricDef.metric_code == candidate).first()
+    if not exists:
+        return candidate
+
+    i = 1
+    while True:
+        suffix = f"_{i}"
+        trimmed = raw_code[: 50 - len(suffix)]
+        candidate = f"{trimmed}{suffix}"
+        exists = db.query(MetricDef).filter(MetricDef.metric_code == candidate).first()
+        if not exists:
+            return candidate
+        i += 1
+
+
 # ════════════════════════════════════════════════════════════════════
-# /sql-scripts/  — CRUD
+# /sql-analyzer/  — MÉTRIQUES SQL RÉELLEMENT COLLECTÉES
 # ════════════════════════════════════════════════════════════════════
 
-@router.get("/sql-scripts/", summary="Liste tous les scripts SQL")
-def list_scripts(
-    category: Optional[str] = None,
-    db_type: Optional[str] = None,
+@router.get("/sql-analyzer/metrics", summary="Liste des métriques SQL réellement collectées")
+def get_sql_metrics(
+    db_id: Optional[int] = None,
     is_active: Optional[int] = 1,
+    metric_code: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    q = db.query(SqlScript)
+    selected_target = None
+
+    if db_id is not None:
+        selected_target = db.query(TargetDB).filter(TargetDB.db_id == db_id).first()
+        if not selected_target:
+            raise HTTPException(status_code=404, detail="Base cible introuvable")
+
+    query = db.query(MetricDef)
 
     if is_active is not None:
-        q = q.filter(SqlScript.is_active == is_active)
+        query = query.filter(MetricDef.is_active == is_active)
 
-    if category and category.strip() and category.upper() != "TOUTES":
-        q = q.filter(SqlScript.category == category.upper())
+    if metric_code and metric_code.strip():
+        query = query.filter(MetricDef.metric_code.ilike(f"%{metric_code.strip()}%"))
 
-    if db_type and db_type.strip() and db_type.upper() != "TOUTES":
-        q = q.filter(SqlScript.db_type == db_type.upper())
+    if selected_target is not None and selected_target.db_type_id is not None:
+        query = query.filter(MetricDef.db_type_id == selected_target.db_type_id)
 
-    scripts = q.order_by(SqlScript.script_id).all()
-    return [_script_to_dict(s) for s in scripts]
+    metrics = query.order_by(MetricDef.metric_id).all()
 
+    results = []
 
-@router.get("/sql-scripts/{script_id}", summary="Détail d'un script")
-def get_script(script_id: int, db: Session = Depends(get_db)):
-    s = db.query(SqlScript).filter(SqlScript.script_id == script_id).first()
-    if not s:
-        raise HTTPException(status_code=404, detail="Script introuvable")
-    return _script_to_dict(s)
+    for m in metrics:
+        value_query = db.query(MetricValue).filter(MetricValue.metric_id == m.metric_id)
 
+        if db_id is not None:
+            value_query = value_query.filter(MetricValue.db_id == db_id)
 
-@router.post("/sql-scripts/", status_code=201, summary="Créer un script")
-def create_script(payload: SqlScriptCreate, db: Session = Depends(get_db)):
-    next_id = db.execute(text("SELECT DBMON.SQL_SCRIPTS_SEQ.NEXTVAL FROM DUAL")).scalar()
+        last_value = value_query.order_by(MetricValue.collected_at.desc()).first()
 
-    s = SqlScript(
-        script_id=next_id,
-        script_name=payload.script_name,
-        description=payload.description,
-        category=(payload.category or "").upper() or None,
-        db_type=(payload.db_type or "ORACLE").upper(),
-        sql_content=payload.sql_content,
-        is_active=payload.is_active if payload.is_active is not None else 1,
-        created_by="ADMIN",
-    )
-    db.add(s)
-    db.commit()
-    db.refresh(s)
-    return _script_to_dict(s)
+        results.append({
+            "metric_id": int(m.metric_id),
+            "metric_code": m.metric_code,
+            "db_type_id": int(m.db_type_id) if m.db_type_id is not None else None,
+            "unit": m.unit,
+            "frequency_sec": int(m.frequency_sec) if m.frequency_sec is not None else None,
+            "warn_threshold": float(m.warn_threshold) if m.warn_threshold is not None else None,
+            "crit_threshold": float(m.crit_threshold) if m.crit_threshold is not None else None,
+            "is_active": int(m.is_active) if m.is_active is not None else 1,
+            "sql_query": _serialize_value(m.sql_query),
+            "created_at": str(m.created_at) if m.created_at else None,
+            "db_id": int(last_value.db_id) if last_value and last_value.db_id is not None else db_id,
+            "value_id": int(last_value.value_id) if last_value and last_value.value_id is not None else None,
+            "value_number": (
+                float(last_value.value_number)
+                if last_value and last_value.value_number is not None
+                else None
+            ),
+            "value_text": last_value.value_text if last_value else None,
+            "severity": last_value.severity if last_value else None,
+            "collected_at": str(last_value.collected_at) if last_value and last_value.collected_at else None,
+        })
 
-
-@router.put("/sql-scripts/{script_id}", summary="Modifier un script")
-def update_script(script_id: int, payload: SqlScriptUpdate, db: Session = Depends(get_db)):
-    s = db.query(SqlScript).filter(SqlScript.script_id == script_id).first()
-    if not s:
-        raise HTTPException(status_code=404, detail="Script introuvable")
-
-    if payload.script_name is not None:
-        s.script_name = payload.script_name
-
-    if payload.description is not None:
-        s.description = payload.description
-
-    if payload.category is not None:
-        s.category = payload.category.upper() if payload.category else None
-
-    if payload.db_type is not None:
-        s.db_type = payload.db_type.upper() if payload.db_type else None
-
-    if payload.sql_content is not None:
-        s.sql_content = payload.sql_content
-
-    if payload.is_active is not None:
-        s.is_active = payload.is_active
-
-    db.commit()
-    db.refresh(s)
-    return _script_to_dict(s)
+    return results
 
 
-@router.delete("/sql-scripts/{script_id}", status_code=204, summary="Supprimer un script")
-def delete_script(script_id: int, db: Session = Depends(get_db)):
-    s = db.query(SqlScript).filter(SqlScript.script_id == script_id).first()
-    if not s:
-        raise HTTPException(status_code=404, detail="Script introuvable")
-    db.delete(s)
-    db.commit()
+@router.post("/sql-analyzer/import-zip", summary="Importer en masse des fichiers SQL vers METRIC_DEFS")
+async def import_metrics_zip(
+    db_id: int = Form(...),
+    file: UploadFile = File(...),
+    frequency_sec: int = Form(60),
+    unit: str = Form("count"),
+    warn_threshold: Optional[float] = Form(None),
+    crit_threshold: Optional[float] = Form(None),
+    is_active: int = Form(1),
+    db: Session = Depends(get_db),
+):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Nom de fichier invalide")
+
+    if not file.filename.lower().endswith(".zip"):
+        raise HTTPException(status_code=400, detail="Veuillez envoyer un fichier ZIP valide")
+
+    target = db.query(TargetDB).filter(TargetDB.db_id == db_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Base cible introuvable")
+
+    if target.db_type_id is None:
+        raise HTTPException(status_code=400, detail="db_type_id introuvable pour la base cible")
+
+    imported = 0
+    skipped = 0
+    errors = []
+
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            zip_path = os.path.join(temp_dir, file.filename)
+
+            with open(zip_path, "wb") as buffer:
+                buffer.write(await file.read())
+
+            try:
+                with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                    zip_ref.extractall(temp_dir)
+            except zipfile.BadZipFile:
+                raise HTTPException(status_code=400, detail="Le fichier envoyé n'est pas un ZIP valide")
+
+            for root, _, files in os.walk(temp_dir):
+                for filename in files:
+                    if not filename.lower().endswith(".sql"):
+                        continue
+
+                    file_path = os.path.join(root, filename)
+
+                    try:
+                        sql_content = _read_sql_file_content(file_path).strip()
+                    except Exception as e:
+                        errors.append({
+                            "file": filename,
+                            "error": f"Lecture impossible: {str(e)}",
+                        })
+                        continue
+
+                    if not sql_content:
+                        skipped += 1
+                        errors.append({
+                            "file": filename,
+                            "error": "Contenu SQL vide",
+                        })
+                        continue
+
+                    raw_code = _slug_metric_code(filename)
+                    metric_code = _next_metric_code(db, raw_code)
+
+                    try:
+                        next_id = db.execute(
+                            text("SELECT METRIC_DEFS_SEQ.NEXTVAL FROM DUAL")
+                        ).scalar()
+                    except Exception as e:
+                        raise HTTPException(
+                            status_code=500,
+                            detail=f"Impossible de récupérer NEXTVAL sur METRIC_DEFS_SEQ: {str(e)}",
+                        )
+
+                    obj = MetricDef(
+                        metric_id=next_id,
+                        metric_code=metric_code,
+                        db_type_id=target.db_type_id,
+                        unit=unit,
+                        frequency_sec=frequency_sec,
+                        warn_threshold=warn_threshold,
+                        crit_threshold=crit_threshold,
+                        is_active=is_active,
+                        sql_query=sql_content,
+                        created_at=datetime.now(),
+                    )
+
+                    db.add(obj)
+                    imported += 1
+
+            db.commit()
+
+        return {
+            "success": True,
+            "message": f"{imported} métrique(s) importée(s) avec succès",
+            "imported": imported,
+            "skipped": skipped,
+            "errors": errors,
+            "db_id": db_id,
+            "db_type_id": int(target.db_type_id),
+            "filename": file.filename,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erreur lors de l'import ZIP : {str(e)}")
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -443,20 +553,6 @@ def execute_script(payload: ExecuteRequest, db: Session = Depends(get_db)):
 
 
 # ── Helpers privés ────────────────────────────────────────────────────────────
-
-def _script_to_dict(s: SqlScript) -> dict:
-    return {
-        "script_id": int(s.script_id),
-        "script_name": s.script_name,
-        "description": s.description,
-        "category": s.category,
-        "db_type": s.db_type,
-        "sql_content": s.sql_content,
-        "is_active": int(s.is_active) if s.is_active is not None else 1,
-        "created_at": str(s.created_at) if s.created_at else None,
-        "created_by": s.created_by,
-    }
-
 
 def _evaluate_cost(total_cost: int) -> str:
     if total_cost == 0:

@@ -3,7 +3,6 @@ from backend.database.session import Base
 
 
 class MetricDef(Base):
-    # ✅ FIX: il faut __tablename__ (double underscore)
     __tablename__ = "METRIC_DEFS"
 
     metric_id = Column("METRIC_ID", Numeric(22, 0), primary_key=True, index=True)
@@ -27,10 +26,12 @@ class MetricDef(Base):
 
     sql_query = Column("SQL_QUERY", CLOB, nullable=False)
 
-    # ✅ IMPORTANT: remplissage auto côté DB (si possible) + côté Python
+    # ✅ NOUVEAU CHAMP (IMPORTANT)
+    category = Column("CATEGORY", String(50), nullable=True)
+
     created_at = Column(
         "CREATED_AT",
         TIMESTAMP,
         nullable=False,
-        server_default=func.current_timestamp(),  # Oracle: CURRENT_TIMESTAMP
+        server_default=func.current_timestamp(),
     )

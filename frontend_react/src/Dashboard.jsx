@@ -253,24 +253,38 @@ export default function Dashboard() {
           grouped[key] = {
             time: formatChartDateTime(r.collected_at_date),
             timestamp,
+            ACTIVE_SESSIONS: null,
+            SESSION_COUNT: null,
           };
         }
 
-        if (String(r.metric_code).toUpperCase() === "ACTIVE_SESSIONS") {
+        const metricCode = String(r.metric_code || "").toUpperCase();
+
+        if (metricCode === "ACTIVE_SESSIONS") {
           grouped[key].ACTIVE_SESSIONS = r.value_number_num;
         }
 
-        if (String(r.metric_code).toUpperCase() === "SESSION_COUNT") {
+        if (metricCode === "SESSION_COUNT") {
           grouped[key].SESSION_COUNT = r.value_number_num;
         }
       });
 
+      let lastSessionCount = null;
+
       const data = Object.values(grouped)
         .sort((a, b) => a.timestamp - b.timestamp)
+        .map((row) => {
+          if (row.SESSION_COUNT === null) {
+            row.SESSION_COUNT = lastSessionCount;
+          } else {
+            lastSessionCount = row.SESSION_COUNT;
+          }
+          return row;
+        })
         .slice(-80);
 
       const lines = [
-        data.some((row) => row.ACTIVE_SESSIONS !== undefined)
+        data.some((row) => row.ACTIVE_SESSIONS !== null && row.ACTIVE_SESSIONS !== undefined)
           ? {
               key: "ACTIVE_SESSIONS",
               name: `${selectedDbName} - ACTIVE_SESSIONS`,
@@ -278,7 +292,7 @@ export default function Dashboard() {
               strokeDasharray: "0",
             }
           : null,
-        data.some((row) => row.SESSION_COUNT !== undefined)
+        data.some((row) => row.SESSION_COUNT !== null && row.SESSION_COUNT !== undefined)
           ? {
               key: "SESSION_COUNT",
               name: `${selectedDbName} - SESSION_COUNT`,

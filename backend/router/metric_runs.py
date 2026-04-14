@@ -7,7 +7,14 @@ from sqlalchemy import text
 
 from backend.database.session import get_db
 from backend.models.metric_run import MetricRun
-from backend.schemas.metric_run import MetricRunCreate, MetricRunOut, MetricRunUpdate
+from backend.models.metric_def import MetricDef
+from backend.models.metric_value import MetricValue
+from backend.schemas.metric_run import (
+    MetricRunCreate,
+    MetricRunOut,
+    MetricRunUpdate,
+    MetricRunHistoryOut,
+)
 
 router = APIRouter(prefix="/metric-runs", tags=["Metric Runs"])
 
@@ -25,9 +32,75 @@ def get_metric_run(run_id: int, db: Session = Depends(get_db)):
     return obj
 
 
+@router.get("/history/by-db/{db_id}", response_model=list[MetricRunHistoryOut])
+def get_metric_runs_history_by_db(db_id: int, db: Session = Depends(get_db)):
+    rows = (
+        db.query(
+            MetricRun.run_id.label("run_id"),
+            MetricRun.metric_id.label("metric_id"),
+            MetricRun.db_id.label("db_id"),
+            MetricDef.metric_code.label("metric_code"),
+            MetricRun.status.label("status"),
+            MetricRun.duration_ms.label("duration_ms"),
+            MetricRun.started_at.label("started_at"),
+            MetricRun.ended_at.label("ended_at"),
+            MetricRun.error_message.label("error_message"),
+            MetricRun.value_id.label("value_id"),
+            MetricDef.sql_query.label("sql_query"),
+            MetricValue.value_number.label("value_number"),
+            MetricValue.value_text.label("value_text"),
+            MetricValue.severity.label("severity"),
+            MetricValue.collected_at.label("collected_at"),
+        )
+        .join(MetricDef, MetricDef.metric_id == MetricRun.metric_id)
+        .outerjoin(MetricValue, MetricValue.value_id == MetricRun.value_id)
+        .filter(MetricRun.db_id == db_id)
+        .order_by(MetricRun.started_at.asc(), MetricRun.run_id.asc())
+        .all()
+    )
+
+    return rows
+
+
+@router.get("/history/by-db/{db_id}/by-metric/{metric_code}", response_model=list[MetricRunHistoryOut])
+def get_metric_runs_history_by_db_and_metric(
+    db_id: int,
+    metric_code: str,
+    db: Session = Depends(get_db),
+):
+    rows = (
+        db.query(
+            MetricRun.run_id.label("run_id"),
+            MetricRun.metric_id.label("metric_id"),
+            MetricRun.db_id.label("db_id"),
+            MetricDef.metric_code.label("metric_code"),
+            MetricRun.status.label("status"),
+            MetricRun.duration_ms.label("duration_ms"),
+            MetricRun.started_at.label("started_at"),
+            MetricRun.ended_at.label("ended_at"),
+            MetricRun.error_message.label("error_message"),
+            MetricRun.value_id.label("value_id"),
+            MetricDef.sql_query.label("sql_query"),
+            MetricValue.value_number.label("value_number"),
+            MetricValue.value_text.label("value_text"),
+            MetricValue.severity.label("severity"),
+            MetricValue.collected_at.label("collected_at"),
+        )
+        .join(MetricDef, MetricDef.metric_id == MetricRun.metric_id)
+        .outerjoin(MetricValue, MetricValue.value_id == MetricRun.value_id)
+        .filter(
+            MetricRun.db_id == db_id,
+            MetricDef.metric_code == metric_code,
+        )
+        .order_by(MetricRun.started_at.asc(), MetricRun.run_id.asc())
+        .all()
+    )
+
+    return rows
+
+
 @router.post("/", response_model=MetricRunOut, status_code=status.HTTP_201_CREATED)
 def create_metric_run(payload: MetricRunCreate, db: Session = Depends(get_db)):
-    # ✅ ID via sequence DBMON
     try:
         next_id = db.execute(text("SELECT DBMON.METRIC_RUNS_SEQ.NEXTVAL FROM DUAL")).scalar()
     except Exception as e:

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const API_BASE = "http://127.0.0.1:8000";
 const DEFAULT_CATEGORY_OPTIONS = [
@@ -25,20 +25,12 @@ export default function AnalyseurSQL() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState({ type: "", text: "" });
 
-  const [showForm, setShowForm] = useState(false);
-  const [editMode, setEditMode] = useState(false);
-  const [deleteTargetId, setDeleteTargetId] = useState(null);
-
-  const [form, setForm] = useState({
-    script_name: "",
-    category: DEFAULT_CATEGORY_OPTIONS[0],
-    description: "",
-    sql_content: "",
-    is_active: true,
-  });
-
   const [libSearch, setLibSearch] = useState("");
   const [libCategory, setLibCategory] = useState("Toutes");
+
+  const [zipFile, setZipFile] = useState(null);
+  const [importingZip, setImportingZip] = useState(false);
+  const fileInputRef = useRef(null);
 
   async function apiGet(endpoint, defaultValue = null) {
     try {
@@ -58,26 +50,115 @@ export default function AnalyseurSQL() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error("POST error");
-    return res.json();
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      throw new Error(data?.detail || data?.message || "POST error");
+    }
+
+    return data;
   }
 
-  async function apiPut(endpoint, payload) {
-    const res = await fetch(`${API_BASE}${endpoint}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) throw new Error("PUT error");
-    return res.json();
+  function inferCategory(metric) {
+    const text = `${metric.metric_code || ""} ${metric.sql_query || ""}`.toUpperCase();
+
+    if (
+      text.includes("LOCK") ||
+      text.includes("WAIT") ||
+      text.includes("BLOCK") ||
+      text.includes("DEADLOCK")
+    ) {
+      return "BLOCAGE";
+    }
+
+    if (
+      text.includes("TABLESPACE") ||
+      text.includes("STORAGE") ||
+      text.includes("ARCHIVE") ||
+      text.includes("DATAFILE") ||
+      text.includes("DISK")
+    ) {
+      return "STOCKAGE";
+    }
+
+    if (
+      text.includes("USER") ||
+      text.includes("ROLE") ||
+      text.includes("GRANT") ||
+      text.includes("PRIV") ||
+      text.includes("AUDIT") ||
+      text.includes("SECUR")
+    ) {
+      return "SECURITE";
+    }
+
+    if (
+      text.includes("INDEX") ||
+      text.includes("PLAN") ||
+      text.includes("OPTIM") ||
+      text.includes("HINT")
+    ) {
+      return "OPTIMISATION";
+    }
+
+    return "PERFORMANCE";
   }
 
-  async function apiDelete(endpoint) {
-    const res = await fetch(`${API_BASE}${endpoint}`, {
-      method: "DELETE",
-    });
-    if (!res.ok) throw new Error("DELETE error");
-    return true;
+  function mapMetricToUiScript(metric, currentDbId) {
+    const category = inferCategory(metric);
+
+    const descriptionParts = [
+      metric.unit ? `Unité: ${metric.unit}` : null,
+      metric.frequency_sec ? `Fréquence: ${metric.frequency_sec}s` : null,
+      metric.warn_threshold !== null && metric.warn_threshold !== undefined
+        ? `Seuil warning: ${metric.warn_threshold}`
+        : null,
+      metric.crit_threshold !== null && metric.crit_threshold !== undefined
+        ? `Seuil critique: ${metric.crit_threshold}`
+        : null,
+    ].filter(Boolean);
+
+    return {
+      script_id: String(metric.metric_id),
+      script_name: metric.metric_code || `METRIC_${metric.metric_id}`,
+      description: descriptionParts.join(" • ") || "Métrique collectée",
+      category,
+      db_type: null,
+      sql_content: metric.sql_query || "",
+      is_active: Number(metric.is_active ?? 1),
+      metric_id: metric.metric_id,
+      metric_code: metric.metric_code,
+      unit: metric.unit,
+      frequency_sec: metric.frequency_sec,
+      warn_threshold: metric.warn_threshold,
+      crit_threshold: metric.crit_threshold,
+      db_id: metric.db_id ?? currentDbId ?? null,
+      value_id: metric.value_id ?? null,
+      value_number: metric.value_number,
+      value_text: metric.value_text,
+      severity: metric.severity || null,
+      collected_at: metric.collected_at || null,
+      created_at: metric.created_at || null,
+    };
+  }
+
+  async function reloadMetricsForSelectedDb() {
+    if (!selectedDbId) {
+      setSqlScripts([]);
+      return;
+    }
+
+    const params = new URLSearchParams();
+    params.append("db_id", selectedDbId);
+    params.append("is_active", "1");
+
+    const metrics = await apiGet(`/sql-analyzer/metrics?${params.toString()}`, []);
+    const mapped = Array.isArray(metrics)
+      ? metrics.map((m) => mapMetricToUiScript(m, selectedDbId))
+      : [];
+
+    setSqlScripts(mapped);
   }
 
   async function loadData() {
@@ -135,35 +216,29 @@ export default function AnalyseurSQL() {
   }, [selectedDb]);
 
   useEffect(() => {
-    if (!selectedDbType) {
+    if (!selectedDbId) {
       setSqlScripts([]);
       return;
     }
 
-    async function loadScriptsByDb() {
+    async function loadMetricsByDb() {
       try {
         setLoading(true);
-
-        const params = new URLSearchParams();
-        params.append("db_type", selectedDbType);
-        params.append("is_active", "1");
-
-        const scripts = await apiGet(`/sql-scripts/?${params.toString()}`, []);
-        setSqlScripts(Array.isArray(scripts) ? scripts : []);
+        await reloadMetricsForSelectedDb();
       } catch (e) {
         console.error(e);
         setSqlScripts([]);
         setMessage({
           type: "error",
-          text: "Erreur lors du chargement des scripts.",
+          text: "Erreur lors du chargement des métriques SQL.",
         });
       } finally {
         setLoading(false);
       }
     }
 
-    loadScriptsByDb();
-  }, [selectedDbType]);
+    loadMetricsByDb();
+  }, [selectedDbId]);
 
   const categories = useMemo(() => {
     const fromDb = sqlScripts
@@ -185,7 +260,9 @@ export default function AnalyseurSQL() {
   }, [sqlScripts, selectedCategory]);
 
   const selectedScript = useMemo(() => {
-    return scriptsFiltered.find((s) => String(s.script_id) === String(selectedScriptId)) || null;
+    return (
+      scriptsFiltered.find((s) => String(s.script_id) === String(selectedScriptId)) || null
+    );
   }, [scriptsFiltered, selectedScriptId]);
 
   useEffect(() => {
@@ -193,8 +270,10 @@ export default function AnalyseurSQL() {
     setSqlEditor("");
     setExplainResult(null);
     setExecuteResult(null);
-    setShowForm(false);
-    setEditMode(false);
+    setZipFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   }, [selectedDbId]);
 
   useEffect(() => {
@@ -221,9 +300,54 @@ export default function AnalyseurSQL() {
     }
   }, [selectedScript]);
 
-  function normalizeCategory(value) {
-    const v = String(value || "").trim().toUpperCase();
-    return DEFAULT_CATEGORY_OPTIONS.includes(v) ? v : DEFAULT_CATEGORY_OPTIONS[0];
+  function formatMetricValue(script) {
+    if (script?.value_number !== null && script?.value_number !== undefined) {
+      return `${script.value_number}${script.unit ? ` ${script.unit}` : ""}`;
+    }
+    if (script?.value_text) return script.value_text;
+    return "—";
+  }
+
+  function formatFileSize(bytes) {
+    if (!bytes && bytes !== 0) return "";
+    if (bytes < 1024) return `${bytes} octets`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} Ko`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} Mo`;
+  }
+
+  function removeSelectedZip() {
+    setZipFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  function severityBadge(severity) {
+    const cfg = {
+      OK: { bg: "#f0fdf4", border: "#86efac", color: "#166534", label: "OK" },
+      INFO: { bg: "#eff6ff", border: "#93c5fd", color: "#1d4ed8", label: "INFO" },
+      WARNING: { bg: "#fffbeb", border: "#fcd34d", color: "#92400e", label: "WARNING" },
+      CRITICAL: { bg: "#fff1f2", border: "#fb7185", color: "#9f1239", label: "CRITICAL" },
+      UNKNOWN: { bg: "#f8fafc", border: "#cbd5e1", color: "#475569", label: "—" },
+    };
+
+    const c = cfg[String(severity || "").toUpperCase()] || cfg.UNKNOWN;
+
+    return (
+      <span
+        style={{
+          background: c.bg,
+          border: `1px solid ${c.border}`,
+          color: c.color,
+          padding: "0.28rem 0.8rem",
+          borderRadius: 9999,
+          fontSize: "0.76rem",
+          fontWeight: 700,
+        }}
+      >
+        {c.label}
+      </span>
+    );
   }
 
   function costBadge(level) {
@@ -280,111 +404,65 @@ export default function AnalyseurSQL() {
     );
   }
 
-  function startNewForm() {
-    setShowForm(true);
-    setEditMode(false);
-    setForm({
-      script_name: "",
-      category: DEFAULT_CATEGORY_OPTIONS[0],
-      description: "",
-      sql_content: "",
-      is_active: true,
-    });
-  }
-
-  function loadScriptIntoForm(script) {
-    setShowForm(true);
-    setEditMode(true);
-    setSelectedScriptId(String(script.script_id));
-    setForm({
-      script_name: script.script_name || "",
-      category: script.category || DEFAULT_CATEGORY_OPTIONS[0],
-      description: script.description || "",
-      sql_content: script.sql_content || "",
-      is_active: Number(script.is_active ?? 1) === 1,
-    });
-  }
-
-  function cancelForm() {
-    setShowForm(false);
-    setEditMode(false);
-    setForm({
-      script_name: "",
-      category: DEFAULT_CATEGORY_OPTIONS[0],
-      description: "",
-      sql_content: "",
-      is_active: true,
-    });
-  }
-
-  async function handleSaveScript() {
-    setMessage({ type: "", text: "" });
-
-    const payload = {
-      script_name: form.script_name.trim(),
-      description: form.description.trim() || null,
-      category: normalizeCategory(form.category),
-      sql_content: form.sql_content.trim(),
-      is_active: form.is_active ? 1 : 0,
-    };
-
-    if (!payload.script_name) {
-      setMessage({ type: "error", text: "Le nom du script est obligatoire." });
+  async function handleImportZip() {
+    if (!selectedDbId) {
+      setMessage({
+        type: "warning",
+        text: "Sélectionnez d'abord une base valide.",
+      });
       return;
     }
 
-    if (!payload.sql_content) {
-      setMessage({ type: "error", text: "Le contenu SQL est obligatoire." });
+    if (!zipFile) {
+      setMessage({
+        type: "warning",
+        text: "Veuillez sélectionner un fichier ZIP.",
+      });
       return;
     }
 
     try {
-      if (editMode && selectedScriptId) {
-        await apiPut(`/sql-scripts/${selectedScriptId}`, payload);
-        setMessage({ type: "success", text: "Script modifié avec succès." });
-      } else {
-        await apiPost("/sql-scripts/", {
-          ...payload,
-          db_type: selectedDbType || "ORACLE",
-        });
-        setMessage({ type: "success", text: "Script ajouté avec succès." });
+      setImportingZip(true);
+      setMessage({ type: "", text: "" });
+
+      const formData = new FormData();
+      formData.append("db_id", selectedDbId);
+      formData.append("file", zipFile);
+      formData.append("frequency_sec", "60");
+      formData.append("unit", "count");
+      formData.append("is_active", "1");
+
+      const res = await fetch(`${API_BASE}/sql-analyzer/import-zip`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const result = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(result?.detail || "Erreur lors de l'import du ZIP.");
       }
 
-      setShowForm(false);
-      setEditMode(false);
+      await reloadMetricsForSelectedDb();
+      removeSelectedZip();
 
-      if (selectedDbType) {
-        const params = new URLSearchParams();
-        params.append("db_type", selectedDbType);
-        params.append("is_active", "1");
-        const scripts = await apiGet(`/sql-scripts/?${params.toString()}`, []);
-        setSqlScripts(Array.isArray(scripts) ? scripts : []);
-      }
-    } catch {
-      setMessage({ type: "error", text: "Erreur lors de l'enregistrement du script." });
-    }
-  }
+      const imported = Number(result?.imported || 0);
+      const skipped = Number(result?.skipped || 0);
 
-  async function handleDeleteScript() {
-    if (!deleteTargetId) return;
-
-    try {
-      await apiDelete(`/sql-scripts/${deleteTargetId}`);
-      setDeleteTargetId(null);
-      setSelectedScriptId("");
-      setShowForm(false);
-      setEditMode(false);
-      setMessage({ type: "success", text: "Script supprimé avec succès." });
-
-      if (selectedDbType) {
-        const params = new URLSearchParams();
-        params.append("db_type", selectedDbType);
-        params.append("is_active", "1");
-        const scripts = await apiGet(`/sql-scripts/?${params.toString()}`, []);
-        setSqlScripts(Array.isArray(scripts) ? scripts : []);
-      }
-    } catch {
-      setMessage({ type: "error", text: "Erreur lors de la suppression." });
+      setMessage({
+        type: "success",
+        text:
+          skipped > 0
+            ? `Import ZIP réussi : ${imported} métrique(s) importée(s), ${skipped} ignorée(s).`
+            : `Import ZIP réussi : ${imported} métrique(s) importée(s).`,
+      });
+    } catch (e) {
+      setMessage({
+        type: "error",
+        text: e.message || "Erreur lors de l'import du ZIP.",
+      });
+    } finally {
+      setImportingZip(false);
     }
   }
 
@@ -411,8 +489,11 @@ export default function AnalyseurSQL() {
           text: `Erreur plan : ${result?.detail || result?.message || "Pas de réponse"}`,
         });
       }
-    } catch {
-      setMessage({ type: "error", text: "Erreur lors de l'analyse du plan." });
+    } catch (e) {
+      setMessage({
+        type: "error",
+        text: e.message || "Erreur lors de l'analyse du plan.",
+      });
     }
   }
 
@@ -441,8 +522,11 @@ export default function AnalyseurSQL() {
       } else {
         setMessage({ type: "error", text: "Erreur lors de l'exécution." });
       }
-    } catch {
-      setMessage({ type: "error", text: "Erreur lors de l'exécution." });
+    } catch (e) {
+      setMessage({
+        type: "error",
+        text: e.message || "Erreur lors de l'exécution.",
+      });
     }
   }
 
@@ -521,7 +605,7 @@ export default function AnalyseurSQL() {
     <div style={styles.page}>
       <PageHeader
         title="Analyseur SQL Intelligent"
-        subtitle="Sélectionnez une base et un script — analysez le plan d'exécution avant de lancer"
+        subtitle="Scripts issus des métriques réellement collectées — analysez le plan avant de lancer"
       />
 
       {message.text ? (
@@ -533,9 +617,9 @@ export default function AnalyseurSQL() {
       ) : null}
 
       <SectionCard>
-        <SectionTitle text="SÉLECTION BASE & SCRIPT" />
+        <SectionTitle text="SÉLECTION BASE & MÉTRIQUE SQL" />
 
-        <div style={styles.topGrid}>
+        <div style={styles.topGridSimple}>
           <select
             style={styles.select}
             value={selectedDbId}
@@ -576,119 +660,110 @@ export default function AnalyseurSQL() {
             </select>
           ) : (
             <select style={styles.select} disabled>
-              <option>Aucun script disponible</option>
+              <option>Aucune métrique disponible</option>
             </select>
           )}
-
-          <button style={styles.primaryButton} onClick={startNewForm}>
-            Nouveau
-          </button>
         </div>
-      </SectionCard>
 
-      {showForm && (
-        <>
-          <div style={{ height: 16 }} />
-          <SectionCard>
-            <SectionTitle
-              text={editMode ? "MODIFIER LE SCRIPT SQL" : "AJOUTER UN SCRIPT SQL"}
+        <div style={styles.importZipCard}>
+          <div style={styles.importZipHeader}>
+            <div>
+              <div style={styles.importZipTitle}>Import en masse par ZIP</div>
+              <div style={styles.importZipSub}>
+                Ajoutez plusieurs scripts SQL d'un seul coup dans METRIC_DEFS pour la base sélectionnée.
+              </div>
+            </div>
+
+            <span style={styles.zipBadge}>
+              {selectedDbType || "TYPE INCONNU"}
+            </span>
+          </div>
+
+          <div style={styles.importDropZone}>
+            <div style={styles.importDropIcon}>📦</div>
+            <div style={styles.importDropText}>
+              <div style={styles.importDropMain}>
+                Sélectionnez un fichier ZIP contenant vos scripts SQL
+              </div>
+              <div style={styles.importDropHint}>
+                Formats acceptés : .zip
+              </div>
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".zip"
+              onChange={(e) => setZipFile(e.target.files?.[0] || null)}
+              style={{ display: "none" }}
             />
 
-            <div style={styles.formGrid2}>
-              <div>
-                <FieldLabel text="Nom du script" />
-                <input
-                  style={styles.input}
-                  value={form.script_name}
-                  placeholder="Ex: Sessions actives Oracle"
-                  onChange={(e) =>
-                    setForm((p) => ({ ...p, script_name: e.target.value }))
-                  }
-                />
+            <button
+              type="button"
+              style={styles.secondaryButton}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importingZip}
+            >
+              Choisir un fichier
+            </button>
+          </div>
+
+          {zipFile ? (
+            <div style={styles.selectedFileCard}>
+              <div style={styles.selectedFileLeft}>
+                <div style={styles.selectedFileIcon}>🗜️</div>
+                <div>
+                  <div style={styles.selectedFileName}>{zipFile.name}</div>
+                  <div style={styles.selectedFileMeta}>
+                    {formatFileSize(zipFile.size)}
+                  </div>
+                </div>
               </div>
 
-              <div style={styles.checkboxWrap}>
-                <label style={styles.checkboxLabel}>
-                  <input
-                    type="checkbox"
-                    checked={form.is_active}
-                    onChange={(e) =>
-                      setForm((p) => ({ ...p, is_active: e.target.checked }))
-                    }
-                  />
-                  Script actif
-                </label>
-              </div>
-            </div>
-
-            <div style={styles.formGrid2b}>
-              <div>
-                <FieldLabel text="Catégorie" />
-                <select
-                  style={styles.select}
-                  value={form.category}
-                  onChange={(e) =>
-                    setForm((p) => ({ ...p, category: e.target.value }))
-                  }
+              <div style={styles.selectedFileActions}>
+                <button
+                  type="button"
+                  style={styles.secondaryButton}
+                  onClick={removeSelectedZip}
+                  disabled={importingZip}
                 >
-                  {DEFAULT_CATEGORY_OPTIONS.map((c) => (
-                    <option key={c}>{c}</option>
-                  ))}
-                </select>
-              </div>
+                  Supprimer
+                </button>
 
-              <div>
-                <FieldLabel text="Description" />
-                <input
-                  style={styles.input}
-                  value={form.description}
-                  placeholder="Description fonctionnelle du script"
-                  onChange={(e) =>
-                    setForm((p) => ({ ...p, description: e.target.value }))
-                  }
-                />
+                <button
+                  type="button"
+                  style={styles.primaryButton}
+                  onClick={handleImportZip}
+                  disabled={importingZip}
+                >
+                  {importingZip ? "Import..." : "Importer ZIP"}
+                </button>
               </div>
             </div>
-
-            <div style={{ marginTop: 14 }}>
-              <FieldLabel text="Contenu SQL" />
-              <textarea
-                style={styles.textarea}
-                rows={8}
-                value={form.sql_content}
-                placeholder="SELECT COUNT(*) FROM v$session ..."
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, sql_content: e.target.value }))
-                }
-              />
+          ) : (
+            <div style={styles.zipEmptyState}>
+              Aucun fichier ZIP sélectionné.
             </div>
-
-            <div style={styles.buttonRow}>
-              <button style={styles.primaryButton} onClick={handleSaveScript}>
-                {editMode ? "Enregistrer les modifications" : "Enregistrer"}
-              </button>
-              <button style={styles.secondaryButton} onClick={cancelForm}>
-                Annuler
-              </button>
-            </div>
-          </SectionCard>
-        </>
-      )}
+          )}
+        </div>
+      </SectionCard>
 
       <div style={{ height: 16 }} />
 
       {selectedScript ? (
         <SectionCard>
-          <SectionTitle text="DÉTAIL DU SCRIPT" />
+          <SectionTitle text="DÉTAIL DE LA MÉTRIQUE SQL" />
 
           <div style={styles.detailGrid}>
             <div>
               <div style={styles.scriptTitle}>{selectedScript.script_name}</div>
               <div style={styles.scriptDesc}>{selectedScript.description || "—"}</div>
+
               <div style={styles.scriptMeta}>
                 {categoryBadge(selectedScript.category)}
-                <span style={styles.monoTag}>#{selectedScript.script_id}</span>
+                <span style={styles.monoTag}>#METRIC-{selectedScript.metric_id}</span>
                 <span style={styles.monoTag}>{selectedDbType || "TYPE INCONNU"}</span>
+                {severityBadge(selectedScript.severity)}
               </div>
             </div>
 
@@ -698,7 +773,9 @@ export default function AnalyseurSQL() {
               <div style={styles.targetHost}>
                 {selectedDb?.host}:{selectedDb?.port}
               </div>
-              <div style={styles.targetService}>{selectedDb?.service_name}</div>
+              <div style={styles.targetService}>
+                {selectedDb?.service_name || selectedDb?.sid || "—"}
+              </div>
             </div>
           </div>
 
@@ -712,7 +789,7 @@ export default function AnalyseurSQL() {
             />
           </div>
 
-          <div style={styles.actionRow5}>
+          <div style={styles.actionRow3}>
             <button style={styles.primaryButton} onClick={handleExplain}>
               Analyser le plan
             </button>
@@ -722,56 +799,16 @@ export default function AnalyseurSQL() {
             <button style={styles.secondaryButton} onClick={resetEditor}>
               Réinitialiser
             </button>
-            <button
-              style={styles.secondaryButton}
-              onClick={() => loadScriptIntoForm(selectedScript)}
-            >
-              Modifier
-            </button>
-            <button
-              style={styles.dangerButton}
-              onClick={() => setDeleteTargetId(selectedScript.script_id)}
-            >
-              Supprimer
-            </button>
           </div>
         </SectionCard>
       ) : (
         <SectionCard>
           <EmptyState
             icon="📄"
-            title="Aucun script disponible"
-            subtitle="Aucun script disponible pour cette base et cette catégorie."
+            title="Aucune métrique SQL disponible"
+            subtitle="Aucune métrique disponible pour cette base et cette catégorie."
           />
         </SectionCard>
-      )}
-
-      {deleteTargetId !== null && (
-        <>
-          <div style={{ height: 16 }} />
-          <SectionCard>
-            <SectionTitle text="CONFIRMATION DE SUPPRESSION" />
-            <div style={styles.deleteConfirm}>
-              Vous êtes sur le point de supprimer le script :{" "}
-              <strong>
-                {sqlScripts.find((s) => s.script_id === deleteTargetId)?.script_name || ""}
-              </strong>{" "}
-              <span style={styles.monoTag}>(ID #{deleteTargetId})</span>
-            </div>
-
-            <div style={styles.buttonRow}>
-              <button style={styles.dangerButton} onClick={handleDeleteScript}>
-                Oui, supprimer
-              </button>
-              <button
-                style={styles.secondaryButton}
-                onClick={() => setDeleteTargetId(null)}
-              >
-                Annuler suppression
-              </button>
-            </div>
-          </SectionCard>
-        </>
       )}
 
       {explainResult && (
@@ -879,13 +916,13 @@ export default function AnalyseurSQL() {
       <div style={{ height: 16 }} />
 
       <SectionCard>
-        <SectionTitle text="BIBLIOTHÈQUE DES SCRIPTS" />
+        <SectionTitle text="BIBLIOTHÈQUE DES MÉTRIQUES SQL" />
 
         <div style={styles.libraryFilters}>
           <input
             style={styles.input}
             value={libSearch}
-            placeholder="Rechercher un script par nom, description ou contenu…"
+            placeholder="Rechercher par code métrique, description ou contenu SQL…"
             onChange={(e) => setLibSearch(e.target.value)}
           />
           <select
@@ -903,22 +940,24 @@ export default function AnalyseurSQL() {
         {!libraryScripts.length ? (
           <EmptyState
             icon="📚"
-            title="Aucun script trouvé"
-            subtitle="Aucun script trouvé pour ces critères."
+            title="Aucune métrique trouvée"
+            subtitle="Aucune métrique trouvée pour ces critères."
           />
         ) : (
           <div style={styles.libraryList}>
-            <div style={styles.libraryHeader}>
+            <div style={styles.libraryHeaderExtended}>
               <div>ID</div>
               <div>NOM</div>
               <div>CATÉGORIE</div>
+              <div>VALEUR</div>
+              <div>SÉVÉRITÉ</div>
               <div>DESCRIPTION</div>
             </div>
 
             {libraryScripts.map((s) => {
               const isActive = Number(s.is_active ?? 1) === 1;
               return (
-                <div key={s.script_id} style={styles.libraryRow}>
+                <div key={s.script_id} style={styles.libraryRowExtended}>
                   <div style={styles.libraryId}>#{s.script_id}</div>
 
                   <div>
@@ -940,6 +979,8 @@ export default function AnalyseurSQL() {
                   </div>
 
                   <div>{categoryBadge(s.category)}</div>
+                  <div style={styles.libraryDesc}>{formatMetricValue(s)}</div>
+                  <div>{severityBadge(s.severity)}</div>
 
                   <div style={styles.libraryDesc}>
                     {String(s.description || "").slice(0, 100)}
@@ -1090,23 +1131,135 @@ const styles = {
     color: "#526077",
     marginBottom: 6,
   },
-  topGrid: {
+  topGridSimple: {
     display: "grid",
-    gridTemplateColumns: "1.5fr 1fr 2.5fr 1.1fr",
+    gridTemplateColumns: "1.5fr 1fr 2.5fr",
     gap: 12,
     alignItems: "center",
   },
-  formGrid2: {
-    display: "grid",
-    gridTemplateColumns: "2.2fr 1.2fr",
-    gap: 16,
-    alignItems: "end",
+  importZipCard: {
+    marginTop: 16,
+    borderRadius: 18,
+    border: "1px solid #dbe7fb",
+    background: "linear-gradient(180deg, #f8fbff 0%, #fdfefe 100%)",
+    padding: 18,
+    boxShadow: "0 8px 24px rgba(37, 99, 235, 0.06)",
   },
-  formGrid2b: {
+  importZipHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12,
+    marginBottom: 14,
+    flexWrap: "wrap",
+  },
+  importZipTitle: {
+    fontSize: "1rem",
+    fontWeight: 800,
+    color: "#0d1b2a",
+    marginBottom: 4,
+  },
+  importZipSub: {
+    fontSize: "0.85rem",
+    color: "#526077",
+    lineHeight: 1.5,
+  },
+  zipBadge: {
+    background: "#e0ecff",
+    color: "#1d4ed8",
+    border: "1px solid #bfdbfe",
+    borderRadius: 9999,
+    padding: "0.35rem 0.75rem",
+    fontSize: "0.72rem",
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
+  importDropZone: {
+    border: "1.5px dashed #bfd3f6",
+    borderRadius: 16,
+    background: "#ffffff",
+    padding: "18px 16px",
     display: "grid",
-    gridTemplateColumns: "1.1fr 2.6fr",
-    gap: 16,
+    gridTemplateColumns: "auto 1fr auto",
+    alignItems: "center",
+    gap: 14,
+  },
+  importDropIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "#eff6ff",
+    fontSize: "1.4rem",
+  },
+  importDropText: {
+    minWidth: 0,
+  },
+  importDropMain: {
+    fontSize: "0.92rem",
+    fontWeight: 700,
+    color: "#0f172a",
+    marginBottom: 4,
+  },
+  importDropHint: {
+    fontSize: "0.78rem",
+    color: "#64748b",
+  },
+  selectedFileCard: {
     marginTop: 14,
+    borderRadius: 14,
+    border: "1px solid #dbe7fb",
+    background: "#ffffff",
+    padding: "14px 16px",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 14,
+    flexWrap: "wrap",
+  },
+  selectedFileLeft: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    minWidth: 0,
+  },
+  selectedFileIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    background: "#eff6ff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "1.2rem",
+    flexShrink: 0,
+  },
+  selectedFileName: {
+    fontSize: "0.9rem",
+    fontWeight: 700,
+    color: "#0f172a",
+    wordBreak: "break-word",
+  },
+  selectedFileMeta: {
+    marginTop: 4,
+    fontSize: "0.76rem",
+    color: "#64748b",
+  },
+  selectedFileActions: {
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+  },
+  zipEmptyState: {
+    marginTop: 14,
+    borderRadius: 12,
+    padding: "0.95rem 1rem",
+    background: "#f8fafc",
+    border: "1px dashed #dbe7fb",
+    color: "#64748b",
+    fontSize: "0.82rem",
   },
   detailGrid: {
     display: "grid",
@@ -1150,18 +1303,6 @@ const styles = {
     boxSizing: "border-box",
     resize: "vertical",
   },
-  checkboxWrap: {
-    display: "flex",
-    alignItems: "center",
-    minHeight: 48,
-  },
-  checkboxLabel: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    fontSize: 14,
-    color: "#334155",
-  },
   primaryButton: {
     border: "1.5px solid #2563eb",
     background: "#2563eb",
@@ -1182,25 +1323,9 @@ const styles = {
     fontSize: 14,
     cursor: "pointer",
   },
-  dangerButton: {
-    border: "1.5px solid #fecdd3",
-    background: "#fff1f2",
-    color: "#9f1239",
-    borderRadius: 12,
-    padding: "0.75rem 1rem",
-    fontWeight: 700,
-    fontSize: 14,
-    cursor: "pointer",
-  },
-  buttonRow: {
-    display: "flex",
-    gap: 12,
-    marginTop: 16,
-    flexWrap: "wrap",
-  },
-  actionRow5: {
+  actionRow3: {
     display: "grid",
-    gridTemplateColumns: "1.4fr 1.4fr 1.2fr 1.1fr 1fr",
+    gridTemplateColumns: "1.4fr 1.4fr 1.2fr",
     gap: 12,
     marginTop: 16,
   },
@@ -1256,13 +1381,6 @@ const styles = {
     fontSize: "0.72rem",
     color: "#8fa0bb",
     marginTop: 4,
-  },
-  deleteConfirm: {
-    background: "#fff8f8",
-    border: "1.5px dashed #fecdd3",
-    borderRadius: 12,
-    padding: "1rem 1.25rem",
-    color: "#9f1239",
   },
   kpiGrid3: {
     display: "grid",
@@ -1457,9 +1575,9 @@ const styles = {
     flexDirection: "column",
     gap: 0,
   },
-  libraryHeader: {
+  libraryHeaderExtended: {
     display: "grid",
-    gridTemplateColumns: "0.5fr 2.2fr 1.3fr 3fr",
+    gridTemplateColumns: "0.6fr 2fr 1.2fr 1.2fr 1.1fr 2.5fr",
     gap: 12,
     fontSize: "0.65rem",
     fontWeight: 800,
@@ -1469,9 +1587,9 @@ const styles = {
     paddingBottom: 10,
     borderBottom: "1px solid #e4e9f2",
   },
-  libraryRow: {
+  libraryRowExtended: {
     display: "grid",
-    gridTemplateColumns: "0.5fr 2.2fr 1.3fr 3fr",
+    gridTemplateColumns: "0.6fr 2fr 1.2fr 1.2fr 1.1fr 2.5fr",
     gap: 12,
     padding: "12px 0",
     borderBottom: "1px solid #f1f5f9",
@@ -1498,5 +1616,6 @@ const styles = {
     fontSize: "0.82rem",
     color: "#526077",
     lineHeight: 1.45,
+    wordBreak: "break-word",
   },
 };

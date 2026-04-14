@@ -34,8 +34,6 @@ def get_metric_def(metric_id: int, db: Session = Depends(get_db)):
 # ✅ CREATE (Oracle 11g compatible - Sequence côté API)
 @router.post("/", response_model=MetricDefOut, status_code=status.HTTP_201_CREATED)
 def create_metric_def(payload: MetricDefCreate, db: Session = Depends(get_db)):
-
-    # 🔥 Générer l'ID via SEQUENCE Oracle
     try:
         next_id = db.execute(
             text("SELECT METRIC_DEFS_SEQ.NEXTVAL FROM DUAL")
@@ -56,6 +54,7 @@ def create_metric_def(payload: MetricDefCreate, db: Session = Depends(get_db)):
         crit_threshold=payload.crit_threshold,
         is_active=payload.is_active,
         sql_query=payload.sql_query,
+        category=payload.category,
         created_at=datetime.now(),
     )
 
@@ -87,8 +86,6 @@ def update_metric_def(metric_id: int, payload: MetricDefUpdate, db: Session = De
         raise HTTPException(status_code=404, detail="MetricDef not found")
 
     data = payload.model_dump(exclude_unset=True)
-
-    # Bonne pratique : on ne modifie pas created_at
     data.pop("created_at", None)
 
     for key, value in data.items():
@@ -118,8 +115,28 @@ def delete_metric_def(metric_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="MetricDef not found")
 
     try:
-        db.delete(obj)
+        db.execute(
+            text("DELETE FROM ALERTS WHERE METRIC_ID = :metric_id"),
+            {"metric_id": metric_id},
+        )
+
+        db.execute(
+            text("DELETE FROM METRIC_RUNS WHERE METRIC_ID = :metric_id"),
+            {"metric_id": metric_id},
+        )
+
+        db.execute(
+            text("DELETE FROM METRIC_VALUES WHERE METRIC_ID = :metric_id"),
+            {"metric_id": metric_id},
+        )
+
+        db.execute(
+            text("DELETE FROM METRIC_DEFS WHERE METRIC_ID = :metric_id"),
+            {"metric_id": metric_id},
+        )
+
         db.commit()
+
     except IntegrityError as e:
         db.rollback()
         msg = str(e.orig)
@@ -127,7 +144,11 @@ def delete_metric_def(metric_id: int, db: Session = Depends(get_db)):
         if "ORA-02292" in msg:
             raise HTTPException(
                 status_code=409,
-                detail="Cannot delete: child records exist (FK constraint).",
+                detail="Cannot delete: child records still exist (FK constraint).",
             )
 
         raise HTTPException(status_code=500, detail=f"Integrity error: {msg}")
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")

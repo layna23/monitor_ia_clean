@@ -227,11 +227,11 @@ export default function Alertes() {
       />
 
       <div style={styles.kpiGrid}>
-        <KpiCard icon="🚨" label="TOTAL ALERTES" value={totalAlerts} accent="#64748b" />
-        <KpiCard icon="🔴" label="ALERTES OUVERTES" value={openAlerts} accent="#ef4444" />
-        <KpiCard icon="✅" label="RÉSOLUES" value={resolvedAlerts} accent="#10b981" />
-        <KpiCard icon="💥" label="CRITIQUES" value={criticalAlerts} accent="#9f1239" />
-        <KpiCard icon="⚠️" label="WARNING" value={warningAlerts} accent="#f59e0b" />
+        <KpiCard icon="" label="TOTAL ALERTES" value={totalAlerts} accent="#64748b" />
+        <KpiCard icon="" label="ALERTES OUVERTES" value={openAlerts} accent="#ef4444" />
+        <KpiCard icon="" label="RÉSOLUES" value={resolvedAlerts} accent="#10b981" />
+        <KpiCard icon="" label="CRITIQUES" value={criticalAlerts} accent="#9f1239" />
+        <KpiCard icon="" label="WARNING" value={warningAlerts} accent="#f59e0b" />
       </div>
 
       <div style={{ height: 16 }} />
@@ -281,16 +281,16 @@ export default function Alertes() {
       <div style={{ height: 16 }} />
 
       <SectionCard>
-        <SectionTitle icon="🔴" text="ALERTES OUVERTES" />
+        <SectionTitle icon="" text="ALERTES OUVERTES" />
 
         {filteredAlerts.length === 0 ? (
-          <EmptyState icon="🔴" message="Aucune alerte trouvée." />
+          <EmptyState icon="" message="Aucune alerte trouvée." />
         ) : openFilteredAlerts.length === 0 ? (
-          <SuccessBox text="✅ Aucune alerte ouverte pour les filtres sélectionnés." />
+          <SuccessBox text=" Aucune alerte ouverte pour les filtres sélectionnés." />
         ) : (
           <>
             <CountBox
-              text={`🔴 ${openFilteredAlerts.length} alerte(s) ouverte(s)`}
+              text={` ${openFilteredAlerts.length} alerte(s) ouverte(s)`}
               tone="danger"
             />
             <div style={{ marginTop: 12 }}>
@@ -367,16 +367,16 @@ export default function Alertes() {
       <div style={{ height: 16 }} />
 
       <SectionCard>
-        <SectionTitle icon="💥" text="ALERTES CRITIQUES" />
+        <SectionTitle icon="" text="ALERTES CRITIQUES" />
 
         {alertsEnriched.length === 0 ? (
-          <EmptyState icon="💥" message="Aucune donnée critique disponible." />
+          <EmptyState icon="" message="Aucune donnée critique disponible." />
         ) : criticalFilteredAlerts.length === 0 ? (
-          <SuccessBox text="✅ Aucune alerte critique pour les filtres sélectionnés." />
+          <SuccessBox text=" Aucune alerte critique pour les filtres sélectionnés." />
         ) : (
           <>
             <CountBox
-              text={`💥 ${criticalFilteredAlerts.length} alerte(s) critique(s)`}
+              text={` ${criticalFilteredAlerts.length} alerte(s) critique(s)`}
               tone="danger"
             />
             <div style={{ marginTop: 12 }}>
