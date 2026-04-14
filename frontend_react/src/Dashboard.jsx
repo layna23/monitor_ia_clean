@@ -6,6 +6,7 @@ import DashboardSummary from "./components/dashboard/DashboardSummary";
 import DashboardCurrentValues from "./components/dashboard/DashboardCurrentValues";
 import DashboardRecentTable from "./components/dashboard/DashboardRecentTable";
 import DashboardOracleTopSql from "./components/dashboard/DashboardOracleTopSql";
+import DashboardOracleSessions from "./components/dashboard/DashboardOracleSessions";
 
 const API_BASE = "http://127.0.0.1:8000";
 const COMBINED_ORACLE_METRIC_KEY = "__SESSIONS_COMPARISON__";
@@ -421,14 +422,6 @@ export default function Dashboard() {
     <div style={{ padding: 24, background: "#f6f8fc", minHeight: "100vh" }}>
       <DashboardHeader message={{}} />
 
-      <div style={{ fontSize: "1.6rem", fontWeight: 800 }}>
-        DB Monitor — Vue globale
-      </div>
-
-      <div style={{ color: "#64748b", marginBottom: 20 }}>
-        Analyse consolidée des bases surveillées
-      </div>
-
       <div
         style={{
           display: "grid",
@@ -484,6 +477,14 @@ export default function Dashboard() {
       {!selectedDbIsMysql ? (
         <>
           <div style={{ height: 12 }} />
+
+          <DashboardOracleSessions
+            selectedDbId={selectedDbId}
+            selectedDbName={selectedDbName}
+          />
+
+          <div style={{ height: 12 }} />
+
           <DashboardOracleTopSql
             selectedDbId={selectedDbId}
             setSelectedDbId={setSelectedDbId}

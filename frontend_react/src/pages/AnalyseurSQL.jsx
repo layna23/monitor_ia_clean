@@ -350,32 +350,6 @@ export default function AnalyseurSQL() {
     );
   }
 
-  function costBadge(level) {
-    const cfg = {
-      LOW: { bg: "#f0fdf4", border: "#86efac", color: "#166534", label: "Faible" },
-      MEDIUM: { bg: "#fffbeb", border: "#fcd34d", color: "#92400e", label: "Moyen" },
-      HIGH: { bg: "#fff7ed", border: "#fb923c", color: "#9a3412", label: "Élevé" },
-      CRITICAL: { bg: "#fff1f2", border: "#fb7185", color: "#9f1239", label: "Critique" },
-      UNKNOWN: { bg: "#f8fafc", border: "#cbd5e1", color: "#475569", label: "Inconnu" },
-    };
-    const c = cfg[String(level || "").toUpperCase()] || cfg.UNKNOWN;
-    return (
-      <span
-        style={{
-          background: c.bg,
-          border: `1px solid ${c.border}`,
-          color: c.color,
-          padding: "0.28rem 0.8rem",
-          borderRadius: 9999,
-          fontSize: "0.76rem",
-          fontWeight: 700,
-        }}
-      >
-        {c.label}
-      </span>
-    );
-  }
-
   function categoryBadge(cat) {
     const cfg = {
       PERFORMANCE: ["#eff6ff", "#93c5fd", "#1d4ed8"],
@@ -604,8 +578,8 @@ export default function AnalyseurSQL() {
   return (
     <div style={styles.page}>
       <PageHeader
-        title="Analyseur SQL Intelligent"
-        subtitle="Scripts issus des métriques réellement collectées — analysez le plan avant de lancer"
+        title="Analyseur de scripts SQL"
+        subtitle="Scripts issus des métriques collectées — analyse du plan avant exécution"
       />
 
       {message.text ? (
@@ -817,22 +791,6 @@ export default function AnalyseurSQL() {
           <SectionCard>
             <SectionTitle text="PLAN D'EXÉCUTION" />
 
-            <div style={styles.kpiGrid3}>
-              <StatCard label="COÛT TOTAL" value={String(explainResult.total_cost ?? 0)} />
-              <div style={styles.statCard}>
-                <div style={styles.statLabel}>NIVEAU DE COÛT</div>
-                <div style={{ marginTop: 8 }}>
-                  {costBadge(explainResult.cost_level || "")}
-                </div>
-              </div>
-              <StatCard
-                label="ÉTAPES DU PLAN"
-                value={String((explainResult.plan_rows || []).length)}
-              />
-            </div>
-
-            <div style={{ height: 16 }} />
-
             {planRowsFormatted.length ? (
               <DataTable
                 columns={[
@@ -848,24 +806,6 @@ export default function AnalyseurSQL() {
             ) : (
               <InfoBox text="Aucun détail de plan disponible." />
             )}
-
-            <div style={{ height: 16 }} />
-
-            <div style={styles.aiPanel}>
-              <div style={styles.aiHeader}>
-                <span style={styles.aiTitle}>ANALYSE IA — DIAGNOSTIC AUTOMATIQUE</span>
-                <span style={styles.aiBadge}>Bientôt</span>
-              </div>
-              <div style={styles.aiBody}>
-                L'IA analysera le plan et vous donnera :
-                <ul style={styles.aiList}>
-                  <li>Évaluation du coût et des risques</li>
-                  <li>Détection de Full Table Scan, index manquants</li>
-                  <li>Recommandations d'optimisation</li>
-                  <li>Décision suggérée : Lancer / Optimiser / Ne pas lancer</li>
-                </ul>
-              </div>
-            </div>
           </SectionCard>
         </>
       )}
@@ -1023,15 +963,6 @@ function EmptyState({ icon, title, subtitle }) {
       <div style={styles.emptyIcon}>{icon}</div>
       <div style={styles.emptyTitle}>{title}</div>
       <div style={styles.emptySub}>{subtitle}</div>
-    </div>
-  );
-}
-
-function StatCard({ label, value }) {
-  return (
-    <div style={styles.statCard}>
-      <div style={styles.statLabel}>{label}</div>
-      <div style={styles.statValue}>{value}</div>
     </div>
   );
 }
@@ -1407,44 +1338,6 @@ const styles = {
     fontWeight: 700,
     color: "#0d1b2a",
     lineHeight: 1,
-  },
-  aiPanel: {
-    background: "linear-gradient(135deg, #f0f7ff 0%, #e8f2ff 100%)",
-    border: "1px solid #bfdbfe",
-    borderRadius: 12,
-    padding: "1.1rem 1.3rem",
-  },
-  aiHeader: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 10,
-  },
-  aiTitle: {
-    fontSize: "0.7rem",
-    fontWeight: 800,
-    textTransform: "uppercase",
-    letterSpacing: "0.1em",
-    color: "#1e4ea6",
-  },
-  aiBadge: {
-    marginLeft: "auto",
-    background: "#dbeafe",
-    color: "#1e40af",
-    border: "1px solid #bfdbfe",
-    padding: "0.1rem 0.55rem",
-    borderRadius: 9999,
-    fontSize: "0.65rem",
-    fontWeight: 700,
-  },
-  aiBody: {
-    fontSize: "0.845rem",
-    color: "#1e3a6e",
-    lineHeight: 1.7,
-  },
-  aiList: {
-    margin: "0.3rem 0 0 1rem",
-    padding: 0,
   },
   successBanner: {
     display: "flex",

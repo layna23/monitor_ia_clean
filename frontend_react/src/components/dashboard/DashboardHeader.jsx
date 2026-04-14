@@ -1,7 +1,7 @@
 export default function DashboardHeader({ message }) {
   return (
     <div style={styles.wrapper}>
-      <div style={styles.title}>Dashboard Analytics</div>
+      <div style={styles.title}>Tableau de bord des bases de données</div>
       <div style={styles.subtitle}>
         Visualisation des métriques, alertes et performances des bases surveillées
       </div>

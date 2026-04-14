@@ -280,25 +280,6 @@ export default function DetailBase() {
     "THREADS_RUNNING",
   ];
 
-  const chartAllowedCodes = [
-    "ACTIVE_SESSIONS",
-    "SESSION_COUNT",
-    "ACTIVE_TRANSACTIONS",
-    "CPU_USED_SESSION",
-    "CPU_USED_BY_SESSION",
-    "CPU_USAGE",
-    "RAM_USAGE",
-    "MEMORY_USAGE",
-    "SGA_USAGE",
-    "PGA_USAGE",
-    "INSTANCE_UPTIME_HOURS",
-    "SESSION_UPTIME_HOURS",
-    "LOCKED_OBJECTS",
-    "TOTAL_SESSIONS",
-    "THREADS_CONNECTED",
-    "THREADS_RUNNING",
-  ];
-
   const visibleMetrics = useMemo(() => {
     return [...latestMetrics];
   }, [latestMetrics]);
@@ -327,7 +308,7 @@ export default function DetailBase() {
 
     history.forEach((row) => {
       const code = String(row.metric_code || "").toUpperCase();
-      if (!chartAllowedCodes.includes(code)) return;
+      if (!code) return;
 
       if (!grouped[code]) grouped[code] = [];
 
@@ -350,10 +331,22 @@ export default function DetailBase() {
   }, [history]);
 
   const chartMetrics = useMemo(() => {
+    const excludedChartCodes = ["DB_STATUS", "DB_INFO"];
+
     return latestMetrics
       .filter((metric) => {
         const code = String(metric.metric_code || "").toUpperCase();
-        return chartAllowedCodes.includes(code) && (historyByMetric[code]?.length || 0) > 0;
+
+        if (excludedChartCodes.includes(code)) return false;
+
+        const chartData = historyByMetric[code] || [];
+        if (chartData.length === 0) return false;
+
+        const hasNumericValues = chartData.some(
+          (row) => row.value !== null && row.value !== undefined && !Number.isNaN(Number(row.value))
+        );
+
+        return hasNumericValues;
       })
       .sort((a, b) =>
         String(a.metric_code || "").localeCompare(String(b.metric_code || ""))
@@ -560,7 +553,7 @@ export default function DetailBase() {
 
       <CollapsibleSection
         title="Graphiques des métriques"
-        subtitle="Historique des métriques principales"
+        subtitle="Historique des métriques numériques disponibles"
         isOpen={openSections.charts}
         onToggle={() => toggleSection("charts")}
       >

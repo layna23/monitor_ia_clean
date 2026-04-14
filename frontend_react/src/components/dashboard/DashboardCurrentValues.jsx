@@ -15,12 +15,24 @@ const C = {
   green: "#10b981",
 };
 
+// 🔥 Fonction pour nettoyer le label
+function cleanLabel(label) {
+  if (!label) return "";
+  return String(label).replace(/\s*\(.*?\)\s*/g, "").trim();
+}
+
 export default function DashboardCurrentValues({
   selectedDbIsMysql,
   selectedDbName,
   latestMetricValuesChart,
   prettifyMetricLabel,
 }) {
+  // 🔥 on transforme les données pour enlever (DB_NAME)
+  const cleanedData = latestMetricValuesChart.map((item) => ({
+    ...item,
+    clean_label: cleanLabel(item.full_label),
+  }));
+
   return (
     <SectionCard>
       <div style={styles.cardTitle}>
@@ -29,31 +41,38 @@ export default function DashboardCurrentValues({
           : `Valeurs actuelles des métriques Oracle — ${selectedDbName}`}
       </div>
 
-      {latestMetricValuesChart.length ? (
+      {cleanedData.length ? (
         <div style={{ width: "100%", height: 340 }}>
           <ResponsiveContainer>
             <BarChart
-              data={latestMetricValuesChart}
+              data={cleanedData}
               layout="vertical"
               margin={{ top: 8, right: 28, left: 8, bottom: 8 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+
               <XAxis
                 type="number"
                 tick={{ fontSize: 11, fill: "#64748b" }}
                 stroke="#94a3b8"
               />
+
+              {/* 🔥 UTILISE clean_label */}
               <YAxis
-                dataKey="full_label"
+                dataKey="clean_label"
                 type="category"
                 width={260}
+                interval={0}
                 tick={{ fontSize: 11, fill: "#334155" }}
                 stroke="#94a3b8"
               />
+
               <Tooltip
                 formatter={(value, name, props) => [
                   value,
-                  prettifyMetricLabel(props?.payload?.metric_code || "Valeur actuelle"),
+                  prettifyMetricLabel(
+                    props?.payload?.metric_code || "Valeur actuelle"
+                  ),
                 ]}
                 labelFormatter={(label) => label}
                 contentStyle={{
@@ -64,8 +83,9 @@ export default function DashboardCurrentValues({
                   boxShadow: "0 10px 30px rgba(15,23,42,0.08)",
                 }}
               />
+
               <Bar dataKey="value_number" radius={[0, 8, 8, 0]}>
-                {latestMetricValuesChart.map((entry, index) => (
+                {cleanedData.map((entry, index) => (
                   <Cell
                     key={`cell-current-${index}`}
                     fill={index === 0 ? C.blue : C.green}
