@@ -1167,21 +1167,14 @@ export default function VueGlobaleBD() {
                     "metric_code",
                     "value",
                     "status",
-                    "duration_ms",
                     "started_at",
-                    "ended_at",
                   ]}
                   rows={dbRuns.map((r) => ({
                     run_id: r.run_id,
                     metric_code: r.metric_code,
                     value: r.value ?? "-",
                     status: r.status,
-                    duration_ms:
-                      r.duration_ms !== null && r.duration_ms !== undefined
-                        ? r.duration_ms
-                        : "-",
                     started_at: r.started_at ? formatDateTime(r.started_at) : "-",
-                    ended_at: r.ended_at ? formatDateTime(r.ended_at) : "-",
                   }))}
                 />
               )}
