@@ -424,6 +424,44 @@ export default function Dashboard() {
 
       <div
         style={{
+          background: "#fff",
+          padding: "16px",
+          borderRadius: "12px",
+          marginBottom: "16px",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <div>
+          <div style={{ fontSize: "16px", fontWeight: "600" }}>
+            Orchestration Prefect
+          </div>
+          <div style={{ fontSize: "13px", color: "#6b7280" }}>
+            Accéder aux logs et au dashboard Prefect
+          </div>
+        </div>
+
+        <a
+          href="http://127.0.0.1:4200"
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            padding: "10px 16px",
+            background: "#0f172a",
+            color: "#fff",
+            borderRadius: "8px",
+            textDecoration: "none",
+            fontWeight: "500",
+          }}
+        >
+          Ouvrir Prefect UI
+        </a>
+      </div>
+
+      <div
+        style={{
           display: "grid",
           gridTemplateColumns: "300px 1fr",
           gap: 16,
