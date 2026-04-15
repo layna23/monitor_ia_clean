@@ -12,6 +12,7 @@ import {
   LineChart,
   Line,
 } from "recharts";
+import RunsHistoryTable from "./RunsHistoryTable";
 
 const API_BASE = "http://127.0.0.1:8000";
 
@@ -172,9 +173,7 @@ export default function VueGlobaleBD() {
   function getMetricObj(latestMetrics, code) {
     const target = normalizeCode(code);
 
-    return (
-      latestMetrics.find((m) => normalizeCode(m.metric_code) === target) || null
-    );
+    return latestMetrics.find((m) => normalizeCode(m.metric_code) === target) || null;
   }
 
   function getMetricValue(latestMetrics, code) {
@@ -390,9 +389,7 @@ export default function VueGlobaleBD() {
       .filter((r) => String(r.db_id) === String(selectedDb.db_id))
       .map((r) => {
         const runTime =
-          safeDate(r.ended_at)?.getTime() ||
-          safeDate(r.started_at)?.getTime() ||
-          0;
+          safeDate(r.ended_at)?.getTime() || safeDate(r.started_at)?.getTime() || 0;
 
         const linkedValue =
           metricValues
@@ -423,8 +420,7 @@ export default function VueGlobaleBD() {
             linkedValue?.value_number !== null && linkedValue?.value_number !== undefined
               ? linkedValue.value_number
               : linkedValue?.value_text ?? "-",
-          collected_at:
-            linkedValue?.collected_at ?? r.ended_at ?? r.started_at ?? null,
+          collected_at: linkedValue?.collected_at ?? r.ended_at ?? r.started_at ?? null,
         };
       });
 
@@ -1158,26 +1154,7 @@ export default function VueGlobaleBD() {
               isOpen={openSections.runs}
               onToggle={() => toggleSection("runs")}
             >
-              {!dbRuns.length ? (
-                <div style={styles.infoBox}>Aucun run pour cette base.</div>
-              ) : (
-                <DataTable
-                  columns={[
-                    "run_id",
-                    "metric_code",
-                    "value",
-                    "status",
-                    "started_at",
-                  ]}
-                  rows={dbRuns.map((r) => ({
-                    run_id: r.run_id,
-                    metric_code: r.metric_code,
-                    value: r.value ?? "-",
-                    status: r.status,
-                    started_at: r.started_at ? formatDateTime(r.started_at) : "-",
-                  }))}
-                />
-              )}
+              <RunsHistoryTable dbRuns={dbRuns} formatDateTime={formatDateTime} />
             </CollapsibleCard>
 
             <CollapsibleCard
