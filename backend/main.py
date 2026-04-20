@@ -18,6 +18,7 @@ from backend.router import db_test
 from backend.router import collector
 from backend.router.sql_analyzer import router as sql_analyzer_router
 from backend.router.oracle_sessions import router as oracle_sessions_router
+from backend.router.ai_router import router as ai_router
 
 app = FastAPI(title="DB Monitor IA Backend")
 
@@ -45,6 +46,7 @@ app.include_router(db_test.router)
 app.include_router(collector.router)
 app.include_router(sql_analyzer_router)
 app.include_router(oracle_sessions_router)
+app.include_router(ai_router)
 
 Instrumentator().instrument(app).expose(app)
 

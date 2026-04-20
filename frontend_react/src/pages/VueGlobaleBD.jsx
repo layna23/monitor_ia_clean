@@ -11,6 +11,9 @@ import {
   Cell,
   LineChart,
   Line,
+  RadialBarChart,
+  RadialBar,
+  PolarAngleAxis,
 } from "recharts";
 import RunsHistoryTable from "./RunsHistoryTable";
 
@@ -148,6 +151,15 @@ export default function VueGlobaleBD() {
 
     return `${n.toFixed(2)} %`;
   }
+
+function getGaugePercent(value) {
+  const n = Number(value);
+
+  if (!Number.isFinite(n) || n < 0) return 0;
+
+  // 🔥 FIX : limiter à 100
+  return Math.max(0, Math.min(n, 100));
+}
 
   function firstNotEmpty(...values) {
     for (const v of values) {
@@ -604,6 +616,7 @@ export default function VueGlobaleBD() {
             normalizeSeverity(threadsConnectedValue.severity) === "CRITICAL"
               ? COLORS.red
               : COLORS.blue,
+          type: "default",
         },
         {
           key: "threads_running",
@@ -613,6 +626,7 @@ export default function VueGlobaleBD() {
             normalizeSeverity(threadsRunningValue.severity) === "CRITICAL"
               ? COLORS.red
               : COLORS.green,
+          type: "default",
         },
         {
           key: "cpu_usage",
@@ -621,27 +635,33 @@ export default function VueGlobaleBD() {
             cpuUsageValue.value !== null && cpuUsageValue.value !== "-"
               ? formatPercentValue(cpuUsageValue.value)
               : "-",
+          gaugeValue: getGaugePercent(cpuUsageValue.value),
           accent:
             normalizeSeverity(cpuUsageValue.severity) === "CRITICAL"
               ? COLORS.red
               : normalizeSeverity(cpuUsageValue.severity) === "WARNING"
               ? COLORS.orange
               : COLORS.purple,
+          type: "gauge",
         },
-        {
-          key: "ram_usage",
-          label: "RAM USAGE",
-          value:
-            ramUsageValue.value !== null && ramUsageValue.value !== "-"
-              ? formatPercentValue(ramUsageValue.value)
-              : "-",
-          accent:
-            normalizeSeverity(ramUsageValue.severity) === "CRITICAL"
-              ? COLORS.red
-              : normalizeSeverity(ramUsageValue.severity) === "WARNING"
-              ? COLORS.orange
-              : COLORS.pink,
-        },
+{
+  key: "ram_usage",
+  label: "RAM USAGE",
+  value:
+    ramUsageValue.value !== null && ramUsageValue.value !== "-"
+      ? Number(ramUsageValue.value) > 100
+        ? "100 %"
+        : formatPercentValue(ramUsageValue.value)
+      : "-",
+  gaugeValue: getGaugePercent(ramUsageValue.value),
+  accent:
+    normalizeSeverity(ramUsageValue.severity) === "CRITICAL"
+      ? COLORS.red
+      : normalizeSeverity(ramUsageValue.severity) === "WARNING"
+      ? COLORS.orange
+      : COLORS.pink,
+  type: "gauge",
+},
       ];
     }
 
@@ -658,6 +678,7 @@ export default function VueGlobaleBD() {
             : normalizeSeverity(dbStatusValue.severity) === "INFO"
             ? COLORS.cyan
             : COLORS.blue,
+        type: "default",
       },
       {
         key: "active_sessions",
@@ -669,6 +690,7 @@ export default function VueGlobaleBD() {
             : normalizeSeverity(activeSessionsValue.severity) === "WARNING"
             ? COLORS.orange
             : COLORS.green,
+        type: "default",
       },
       {
         key: "active_transactions",
@@ -680,6 +702,7 @@ export default function VueGlobaleBD() {
             : normalizeSeverity(activeTxValue.severity) === "WARNING"
             ? COLORS.orange
             : COLORS.blue,
+        type: "default",
       },
       {
         key: "cpu_used_session",
@@ -691,6 +714,7 @@ export default function VueGlobaleBD() {
             : normalizeSeverity(cpuUsedSessionValue.severity) === "WARNING"
             ? COLORS.orange
             : COLORS.purple,
+        type: "default",
       },
       {
         key: "uptime_h",
@@ -702,6 +726,7 @@ export default function VueGlobaleBD() {
             : normalizeSeverity(uptimeValue.severity) === "WARNING"
             ? COLORS.orange
             : COLORS.cyan,
+        type: "default",
       },
       {
         key: "cpu_usage",
@@ -710,27 +735,31 @@ export default function VueGlobaleBD() {
           cpuUsageValue.value !== null && cpuUsageValue.value !== "-"
             ? formatPercentValue(cpuUsageValue.value)
             : "-",
+        gaugeValue: getGaugePercent(cpuUsageValue.value),
         accent:
           normalizeSeverity(cpuUsageValue.severity) === "CRITICAL"
             ? COLORS.red
             : normalizeSeverity(cpuUsageValue.severity) === "WARNING"
             ? COLORS.orange
             : COLORS.purple,
+        type: "gauge",
       },
-      {
-        key: "ram_usage",
-        label: "RAM USAGE",
-        value:
-          ramUsageValue.value !== null && ramUsageValue.value !== "-"
-            ? formatPercentValue(ramUsageValue.value)
-            : "-",
-        accent:
-          normalizeSeverity(ramUsageValue.severity) === "CRITICAL"
-            ? COLORS.red
-            : normalizeSeverity(ramUsageValue.severity) === "WARNING"
-            ? COLORS.orange
-            : COLORS.pink,
-      },
+{
+  key: "ram_usage",
+  label: "RAM USAGE",
+  value:
+    ramUsageValue.value !== null && ramUsageValue.value !== "-"
+      ? formatPercentValue(ramUsageValue.value)
+      : "-",
+  gaugeValue: getGaugePercent(ramUsageValue.value),
+  accent:
+    normalizeSeverity(ramUsageValue.severity) === "CRITICAL"
+      ? COLORS.red
+      : normalizeSeverity(ramUsageValue.severity) === "WARNING"
+      ? COLORS.orange
+      : COLORS.pink,
+  type: "gauge",
+},
     ];
   }, [
     isMySQL,
@@ -915,17 +944,30 @@ export default function VueGlobaleBD() {
               gridTemplateColumns: `repeat(${kpiColumns}, 1fr)`,
             }}
           >
-            {kpiCards.map((card) => (
-              <KpiCard
-                key={card.key}
-                label={card.label}
-                value={card.value}
-                accent={card.accent}
-                clickable
-                active={openedInfoKey === card.key}
-                onClick={() => handleInfoToggle(card.key)}
-              />
-            ))}
+            {kpiCards.map((card) =>
+              card.type === "gauge" ? (
+                <GaugeKpiCard
+                  key={card.key}
+                  label={card.label}
+                  value={card.value}
+                  gaugeValue={card.gaugeValue}
+                  accent={card.accent}
+                  clickable
+                  active={openedInfoKey === card.key}
+                  onClick={() => handleInfoToggle(card.key)}
+                />
+              ) : (
+                <KpiCard
+                  key={card.key}
+                  label={card.label}
+                  value={card.value}
+                  accent={card.accent}
+                  clickable
+                  active={openedInfoKey === card.key}
+                  onClick={() => handleInfoToggle(card.key)}
+                />
+              )
+            )}
           </div>
 
           <div style={{ height: 12 }} />
@@ -1244,6 +1286,73 @@ function KpiCard({
       <div style={styles.kpiLabel}>{label}</div>
       <div style={styles.kpiValue}>{value}</div>
       {subtitle ? <div style={styles.kpiSub}>{subtitle}</div> : null}
+      {clickable ? (
+        <div style={styles.kpiHint}>
+          {active ? "Cliquer pour masquer l'explication" : "Cliquer pour voir l'explication"}
+        </div>
+      ) : null}
+    </button>
+  );
+}
+
+function GaugeKpiCard({
+  label,
+  value,
+  gaugeValue = 0,
+  accent,
+  clickable = false,
+  active = false,
+  onClick,
+}) {
+  const chartData = [{ value: gaugeValue }];
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        ...styles.kpiCard,
+        ...styles.gaugeKpiCard,
+        ...(clickable ? styles.kpiCardClickable : {}),
+        ...(active ? styles.kpiCardActive : {}),
+        textAlign: "left",
+        width: "100%",
+      }}
+    >
+      <div style={{ ...styles.kpiTopline, background: accent }} />
+      <div style={styles.kpiLabel}>{label}</div>
+
+      <div style={styles.gaugeWrap}>
+        <div style={styles.gaugeChartBox}>
+          <ResponsiveContainer width="100%" height="100%">
+            <RadialBarChart
+              cx="50%"
+              cy="58%"
+              innerRadius="74%"
+              outerRadius="100%"
+              barSize={12}
+              data={chartData}
+              startAngle={210}
+              endAngle={-30}
+            >
+              <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
+              <RadialBar
+                background={{ fill: "#e9eef5" }}
+                clockWise
+                dataKey="value"
+                cornerRadius={12}
+                fill={accent}
+              />
+            </RadialBarChart>
+          </ResponsiveContainer>
+
+          <div style={styles.gaugeCenter}>
+            <div style={styles.gaugeCenterValue}>{value}</div>
+            <div style={styles.gaugeCenterSub}>{Math.round(gaugeValue)} / 100</div>
+          </div>
+        </div>
+      </div>
+
       {clickable ? (
         <div style={styles.kpiHint}>
           {active ? "Cliquer pour masquer l'explication" : "Cliquer pour voir l'explication"}
@@ -1602,102 +1711,142 @@ const styles = {
     overflow: "hidden",
     minHeight: 118,
   },
-  kpiCardClickable: {
-    cursor: "pointer",
-    transition: "all 0.18s ease",
-  },
-  kpiCardActive: {
-    transform: "translateY(-2px)",
-    boxShadow: "0 10px 24px rgba(37,99,235,0.10)",
-    border: "1px solid #bfdbfe",
-    background: "#f8fbff",
-  },
-  kpiTopline: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 3,
-    borderRadius: "3px 3px 0 0",
-  },
-  kpiLabel: {
-    fontSize: 11,
-    fontWeight: 800,
-    textTransform: "uppercase",
-    letterSpacing: "0.09em",
-    color: "#94a3b8",
-    marginTop: 8,
-    marginBottom: 10,
-  },
-  kpiValue: {
-    fontSize: 28,
-    fontWeight: 800,
-    color: "#0f172a",
-    lineHeight: 1.1,
-  },
-  kpiSub: {
-    fontSize: 12,
-    color: "#94a3b8",
-    marginTop: 6,
-  },
-  kpiHint: {
-    marginTop: 10,
-    fontSize: 12,
-    color: "#64748b",
-    fontWeight: 600,
-  },
-  card: {
-    background: "#fff",
-    padding: 20,
-    borderRadius: 16,
-    border: "1px solid #e2e8f0",
-    boxShadow: "0 1px 3px rgba(15,23,42,0.06)",
-  },
-  sectionDesc: {
-    fontSize: 14,
-    color: "#64748b",
-    marginTop: 0,
-    marginBottom: 14,
-  },
-  infoDetailsCard: {
-    border: "1px solid #dbeafe",
-    background: "#ffffff",
-    borderRadius: 14,
-    padding: 16,
-    boxShadow: "0 1px 3px rgba(15,23,42,0.04)",
-  },
-  infoDetailsTitle: {
-    fontSize: 18,
-    fontWeight: 800,
-    color: "#1d4ed8",
-    marginBottom: 14,
-  },
-  explainCard: {
-    background: "#f8fafc",
-    borderLeft: "3px solid",
-    borderRadius: "0 8px 8px 0",
-    padding: "12px 14px",
-    marginBottom: 10,
-  },
-  explainLabel: {
-    fontSize: 12,
-    fontWeight: 700,
-    textTransform: "uppercase",
-    letterSpacing: "0.07em",
-    color: "#94a3b8",
-    marginBottom: 4,
-  },
-  explainText: {
-    fontSize: 14,
-    color: "#334155",
-    lineHeight: 1.6,
-  },
-  infoMetaGrid: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr 1fr",
-    gap: 16,
-    marginTop: 6,
-  },
+gaugeKpiCard: {
+  minHeight: 245,
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "space-between",
+},
+kpiCardClickable: {
+  cursor: "pointer",
+  transition: "all 0.18s ease",
+},
+kpiCardActive: {
+  transform: "translateY(-2px)",
+  boxShadow: "0 10px 24px rgba(37,99,235,0.10)",
+  border: "1px solid #bfdbfe",
+  background: "#f8fbff",
+},
+kpiTopline: {
+  position: "absolute",
+  top: 0,
+  left: 0,
+  right: 0,
+  height: 3,
+  borderRadius: "3px 3px 0 0",
+},
+kpiLabel: {
+  fontSize: 11,
+  fontWeight: 800,
+  textTransform: "uppercase",
+  letterSpacing: "0.09em",
+  color: "#94a3b8",
+  marginTop: 8,
+  marginBottom: 10,
+},
+kpiValue: {
+  fontSize: 28,
+  fontWeight: 800,
+  color: "#0f172a",
+  lineHeight: 1.1,
+},
+kpiSub: {
+  fontSize: 12,
+  color: "#94a3b8",
+  marginTop: 6,
+},
+kpiHint: {
+  marginTop: 10,
+  fontSize: 12,
+  color: "#64748b",
+  fontWeight: 600,
+},
+gaugeWrap: {
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  marginTop: 6,
+  marginBottom: 8,
+},
+gaugeChartBox: {
+  width: 220,
+  height: 145,
+  position: "relative",
+},
+gaugeCenter: {
+  position: "absolute",
+  left: "50%",
+  top: "60%",
+  transform: "translate(-50%, -50%)",
+  width: "78%",
+  textAlign: "center",
+  pointerEvents: "none",
+},
+gaugeCenterValue: {
+  fontSize: 20,
+  fontWeight: 900,
+  color: "#0f172a",
+  lineHeight: 1.1,
+  wordBreak: "break-word",
+},
+gaugeCenterSub: {
+  marginTop: 6,
+  fontSize: 12,
+  fontWeight: 700,
+  color: "#94a3b8",
+},
+card: {
+  background: "#fff",
+  padding: 20,
+  borderRadius: 16,
+  border: "1px solid #e2e8f0",
+  boxShadow: "0 1px 3px rgba(15,23,42,0.06)",
+},
+sectionDesc: {
+  fontSize: 14,
+  color: "#64748b",
+  marginTop: 0,
+  marginBottom: 14,
+},
+infoDetailsCard: {
+  border: "1px solid #dbeafe",
+  background: "#ffffff",
+  borderRadius: 14,
+  padding: 16,
+  boxShadow: "0 1px 3px rgba(15,23,42,0.04)",
+},
+infoDetailsTitle: {
+  fontSize: 18,
+  fontWeight: 800,
+  color: "#1d4ed8",
+  marginBottom: 14,
+},
+explainCard: {
+  background: "#f8fafc",
+  borderLeft: "3px solid",
+  borderRadius: "0 8px 8px 0",
+  padding: "12px 14px",
+  marginBottom: 10,
+},
+explainLabel: {
+  fontSize: 12,
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: "0.07em",
+  color: "#94a3b8",
+  marginBottom: 4,
+},
+explainText: {
+  fontSize: 14,
+  color: "#334155",
+  lineHeight: 1.6,
+},
+infoMetaGrid: {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr 1fr",
+  gap: 16,
+  marginTop: 6,
+},
   metaTitle: {
     fontSize: 13,
     fontWeight: 700,

@@ -83,56 +83,56 @@ export default function TestDB() {
     return targets.find((t) => String(t.db_id) === String(selectedDbId)) || null;
   }, [targets, selectedDbId]);
 
-  async function handleTestConnection() {
-    if (!selected) return;
+async function handleTestConnection() {
+  if (!selected) return;
 
-    const dbTypeId = selected.db_type_id;
-    const dbTypeCode = dbTypeId ? dbTypeMap[Number(dbTypeId)] || "" : "";
+  const dbTypeId = selected.db_type_id;
+  const dbTypeCode = dbTypeId ? dbTypeMap[Number(dbTypeId)] || "" : "";
 
-    if (!dbTypeCode) {
+  if (!dbTypeCode) {
+    setError(
+      "Impossible de déterminer le type BD. Vérifiez la configuration dans Types BD."
+    );
+    return;
+  }
+
+  const payload = {
+    db_id: selected.db_id,
+    db_name: selected.db_name,
+    db_type: dbTypeCode,
+    host: selected.host,
+    port: selected.port,
+    service: selected.service_name || selected.sid,
+    username: selected.username,
+    password: selected.password || selected.password_enc || "",
+  };
+
+  setTesting(true);
+  setError("");
+
+  try {
+    const res = await api.post("/db-test/", payload);
+    const result = res?.data ?? null;
+
+    if (!result) {
       setError(
-        "Impossible de déterminer le type BD. Vérifiez la configuration dans Types BD."
+        "Impossible de joindre le backend. Vérifiez que l'API FastAPI est démarrée."
       );
       return;
     }
 
-    const password = selected.password || selected.password_enc || "";
-
-    const payload = {
-      db_type: dbTypeCode,
-      host: selected.host,
-      port: selected.port,
-      service: selected.service_name || selected.sid,
-      username: selected.username,
-      password,
-    };
-
-    setTesting(true);
-    setError("");
-
-    try {
-      const res = await api.post("/db-test/", payload);
-      const result = res?.data ?? null;
-
-      if (!result) {
-        setError(
-          "Impossible de joindre le backend. Vérifiez que l'API FastAPI est démarrée."
-        );
-        return;
-      }
-
-      setLastResult(result);
-      setLastTestName(selected.db_name || "");
-      setLastTestType(dbTypeCode);
-    } catch (e) {
-      console.error("Erreur test connexion:", e);
-      setError(
-        "Impossible de joindre le backend. Vérifiez que l'API FastAPI est démarrée."
-      );
-    } finally {
-      setTesting(false);
-    }
+    setLastResult(result);
+    setLastTestName(selected.db_name || "");
+    setLastTestType(dbTypeCode);
+  } catch (e) {
+    console.error("Erreur test connexion:", e);
+    setError(
+      "Impossible de joindre le backend. Vérifiez que l'API FastAPI est démarrée."
+    );
+  } finally {
+    setTesting(false);
   }
+}
 
   function handleRefresh() {
     setLastResult(null);
