@@ -4,6 +4,12 @@ export default function DashboardFilters({
   setSelectedDbId,
   selectedPeriod,
   setSelectedPeriod,
+  allMetrics = [],
+  selectedMetric,
+  setSelectedMetric,
+  prettifyMetricLabel,
+  combinedOracleMetricKey,
+  selectedDbIsOracle,
 }) {
   return (
     <div style={styles.card}>
@@ -45,6 +51,32 @@ export default function DashboardFilters({
           </button>
         ))}
       </div>
+
+      <div style={{ height: 14 }} />
+
+      <div style={styles.label}>Métrique affichée</div>
+      <select
+        value={selectedMetric || ""}
+        onChange={(e) => setSelectedMetric(e.target.value)}
+        style={styles.select}
+      >
+        {allMetrics.length === 0 ? (
+          <option value="">Aucune métrique disponible</option>
+        ) : (
+          allMetrics.map((metric) => {
+            const label =
+              selectedDbIsOracle && metric === combinedOracleMetricKey
+                ? "Sessions actives + nombre de sessions"
+                : prettifyMetricLabel(metric);
+
+            return (
+              <option key={metric} value={metric}>
+                {label}
+              </option>
+            );
+          })
+        )}
+      </select>
     </div>
   );
 }

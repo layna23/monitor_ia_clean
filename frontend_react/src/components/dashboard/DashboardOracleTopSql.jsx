@@ -158,7 +158,9 @@ export default function DashboardOracleTopSql({
 
   return (
     <>
-      <div style={styles.sectionTitleMain}>Top 10 requêtes SQL</div>
+      <div style={styles.sectionTitleMain}>
+        Top {queries.length} requêtes SQL
+      </div>
       <div style={styles.sectionSubMain}>
         Requêtes SQL les plus intensives détectées sur la base Oracle sélectionnée.
       </div>
@@ -198,7 +200,7 @@ export default function DashboardOracleTopSql({
         <div style={{ height: 14 }} />
 
         {topSqlLoading ? (
-          <InfoBox text="Chargement du Top 10 SQL..." />
+          <InfoBox text="Chargement du Top SQL..." />
         ) : !topSqlData ? (
           <InfoBox text="Aucune donnée Top SQL disponible." />
         ) : (
@@ -212,7 +214,7 @@ export default function DashboardOracleTopSql({
 
             {queries.length ? (
               <CollapsibleTable
-                title="Tableau Top 10 requêtes SQL"
+                title={`Tableau Top ${queries.length} requêtes SQL`}
                 count={queries.length}
                 defaultOpen={true}
               >

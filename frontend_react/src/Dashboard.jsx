@@ -38,31 +38,26 @@ function formatChartDateTime(value) {
   )}`;
 }
 
-function prettifyMetricLabel(code) {
-  const value = String(code || "").trim().toUpperCase();
+function prettifyMetricLabel(code, metricDefs = []) {
+  const normalizedCode = String(code || "").trim().toUpperCase();
+  if (!normalizedCode) return "-";
 
-  const map = {
-    THREADS_CONNECTED: "Threads connectés",
-    THREADS_RUNNING: "Threads actifs",
-    QUESTIONS: "Questions",
-    UPTIME: "Uptime",
-    SLOW_QUERIES: "Requêtes lentes",
-    ACTIVE_SESSIONS: "Sessions actives",
-    SESSION_COUNT: "Nombre de sessions",
-    TOTAL_SESSIONS: "Total sessions",
-    "TOTAL SESSIONS": "Total sessions",
-    ACTIVE_TRANSACTIONS: "Transactions actives",
-    LOCKED_OBJECTS: "Objets verrouillés",
-    CPU_USED_SESSION: "CPU session",
-    INSTANCE_UPTIME_HOURS: "Uptime instance (h)",
-    DB_STATUS: "Statut base",
-    DB_INFO: "Informations base",
-    TEST_METRIC_02: "Test metric 02",
-    CPU_USAGE: "CPU usage",
-    RAM_USAGE: "RAM usage",
-  };
+  const found = metricDefs.find(
+    (m) => String(m.metric_code || "").trim().toUpperCase() === normalizedCode
+  );
 
-  return map[value] || value || "-";
+  if (found) {
+    return (
+      found.metric_label ||
+      found.label ||
+      found.metric_name ||
+      found.display_name ||
+      found.metric_code ||
+      normalizedCode
+    );
+  }
+
+  return normalizedCode;
 }
 
 function isMysqlDb(db) {
@@ -125,10 +120,16 @@ export default function Dashboard() {
   }
 
   async function getOracleTopSql(dbId, excludeDbmon = false) {
-    return await apiGet(
-      `/collector/oracle-top-sql/${dbId}?exclude_dbmon=${excludeDbmon}`,
-      null
-    );
+    const params = new URLSearchParams();
+    params.append("db_id", String(dbId));
+    params.append("limit", "10");
+    params.append("sort_by", "elapsed_time");
+
+    if (excludeDbmon) {
+      params.append("exclude_schema", "DBMON");
+    }
+
+    return await apiGet(`/sql-analyzer/top-queries?${params.toString()}`, null);
   }
 
   useEffect(() => {
@@ -312,7 +313,7 @@ export default function Dashboard() {
         data.some((row) => row.ACTIVE_SESSIONS !== null && row.ACTIVE_SESSIONS !== undefined)
           ? {
               key: "ACTIVE_SESSIONS",
-              name: `${selectedDbName} - ACTIVE_SESSIONS`,
+              name: `${selectedDbName} - ${prettifyMetricLabel("ACTIVE_SESSIONS", metricDefs)}`,
               stroke: C.blue,
               strokeDasharray: "0",
             }
@@ -320,7 +321,7 @@ export default function Dashboard() {
         data.some((row) => row.SESSION_COUNT !== null && row.SESSION_COUNT !== undefined)
           ? {
               key: "SESSION_COUNT",
-              name: `${selectedDbName} - SESSION_COUNT`,
+              name: `${selectedDbName} - ${prettifyMetricLabel("SESSION_COUNT", metricDefs)}`,
               stroke: C.green,
               strokeDasharray: "6 4",
             }
@@ -356,7 +357,7 @@ export default function Dashboard() {
       lines: [
         {
           key: "value",
-          name: `${selectedDbName} - ${selectedMetric}`,
+          name: `${selectedDbName} - ${prettifyMetricLabel(selectedMetric, metricDefs)}`,
           stroke: C.blue,
           strokeDasharray: "0",
         },
@@ -369,6 +370,7 @@ export default function Dashboard() {
     selectedMetric,
     selectedDbIsOracle,
     selectedDbName,
+    metricDefs,
   ]);
 
   const mainLineData = mainChartMeta.data;
@@ -377,10 +379,10 @@ export default function Dashboard() {
 
   const chartTitle = useMemo(() => {
     if (selectedDbIsOracle && selectedMetric === COMBINED_ORACLE_METRIC_KEY) {
-      return `${selectedDbName} - ACTIVE_SESSIONS + SESSION_COUNT`;
+      return `${selectedDbName} - ${prettifyMetricLabel("ACTIVE_SESSIONS", metricDefs)} + ${prettifyMetricLabel("SESSION_COUNT", metricDefs)}`;
     }
-    return `${selectedDbName} - ${prettifyMetricLabel(selectedMetric)}`;
-  }, [selectedDbIsOracle, selectedMetric, selectedDbName]);
+    return `${selectedDbName} - ${prettifyMetricLabel(selectedMetric, metricDefs)}`;
+  }, [selectedDbIsOracle, selectedMetric, selectedDbName, metricDefs]);
 
   const summaryCards = useMemo(() => {
     const latestByMetric = {};
@@ -390,29 +392,44 @@ export default function Dashboard() {
 
     if (selectedDbIsMysql) {
       return [
-        { label: "Threads connectés", value: latestByMetric.THREADS_CONNECTED ?? "-" },
-        { label: "Threads actifs", value: latestByMetric.THREADS_RUNNING ?? "-" },
-        { label: "Questions", value: latestByMetric.QUESTIONS ?? "-" },
-        { label: "Requêtes lentes", value: latestByMetric.SLOW_QUERIES ?? "-" },
+        {
+          label: prettifyMetricLabel("THREADS_CONNECTED", metricDefs),
+          value: latestByMetric.THREADS_CONNECTED ?? "-",
+        },
+        {
+          label: prettifyMetricLabel("THREADS_RUNNING", metricDefs),
+          value: latestByMetric.THREADS_RUNNING ?? "-",
+        },
+        {
+          label: prettifyMetricLabel("QUESTIONS", metricDefs),
+          value: latestByMetric.QUESTIONS ?? "-",
+        },
+        {
+          label: prettifyMetricLabel("SLOW_QUERIES", metricDefs),
+          value: latestByMetric.SLOW_QUERIES ?? "-",
+        },
       ];
     }
 
     return [
-      { label: "Sessions actives", value: latestByMetric.ACTIVE_SESSIONS ?? "-" },
       {
-        label: "Total sessions",
+        label: prettifyMetricLabel("ACTIVE_SESSIONS", metricDefs),
+        value: latestByMetric.ACTIVE_SESSIONS ?? "-",
+      },
+      {
+        label: prettifyMetricLabel("TOTAL_SESSIONS", metricDefs),
         value: latestByMetric.TOTAL_SESSIONS ?? latestByMetric.SESSION_COUNT ?? "-",
       },
       {
-        label: "Transactions actives",
+        label: prettifyMetricLabel("ACTIVE_TRANSACTIONS", metricDefs),
         value: latestByMetric.ACTIVE_TRANSACTIONS ?? "-",
       },
       {
-        label: "Objets verrouillés",
+        label: prettifyMetricLabel("LOCKED_OBJECTS", metricDefs),
         value: latestByMetric.LOCKED_OBJECTS ?? "-",
       },
     ];
-  }, [filteredMetricValuesSelectedDb, selectedDbIsMysql]);
+  }, [filteredMetricValuesSelectedDb, selectedDbIsMysql, metricDefs]);
 
   const latestMetricValuesChart = useMemo(() => {
     return (Array.isArray(latestMetrics) ? latestMetrics : [])
@@ -422,10 +439,10 @@ export default function Dashboard() {
         return {
           metric_code: metricCode,
           value_number: Number(m.value_number) || 0,
-          full_label: `${prettifyMetricLabel(metricCode)} (${selectedDbName})`,
+          full_label: `${prettifyMetricLabel(metricCode, metricDefs)} (${selectedDbName})`,
         };
       });
-  }, [latestMetrics, selectedDbId, metricMap, selectedDbName]);
+  }, [latestMetrics, selectedDbId, metricMap, selectedDbName, metricDefs]);
 
   const recentRows = useMemo(() => {
     return filteredMetricValuesSelectedDb
@@ -448,44 +465,6 @@ export default function Dashboard() {
 
       <div
         style={{
-          background: "#fff",
-          padding: "16px",
-          borderRadius: "12px",
-          marginBottom: "16px",
-          boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
-        <div>
-          <div style={{ fontSize: "16px", fontWeight: "600" }}>
-            Orchestration Prefect
-          </div>
-          <div style={{ fontSize: "13px", color: "#6b7280" }}>
-            Accéder aux logs et au dashboard Prefect
-          </div>
-        </div>
-
-        <a
-          href="http://127.0.0.1:4200"
-          target="_blank"
-          rel="noreferrer"
-          style={{
-            padding: "10px 16px",
-            background: "#0f172a",
-            color: "#fff",
-            borderRadius: "8px",
-            textDecoration: "none",
-            fontWeight: "500",
-          }}
-        >
-          Ouvrir Prefect UI
-        </a>
-      </div>
-
-      <div
-        style={{
           display: "grid",
           gridTemplateColumns: "300px 1fr",
           gap: 16,
@@ -497,6 +476,12 @@ export default function Dashboard() {
           setSelectedDbId={setSelectedDbId}
           selectedPeriod={selectedPeriod}
           setSelectedPeriod={setSelectedPeriod}
+          allMetrics={allMetrics}
+          selectedMetric={selectedMetric}
+          setSelectedMetric={setSelectedMetric}
+          prettifyMetricLabel={(code) => prettifyMetricLabel(code, metricDefs)}
+          combinedOracleMetricKey={COMBINED_ORACLE_METRIC_KEY}
+          selectedDbIsOracle={selectedDbIsOracle}
         />
 
         <DashboardMainCharts
@@ -509,7 +494,7 @@ export default function Dashboard() {
           mainChartLines={mainChartLines}
           hasEnoughMainChartPoints={hasEnoughMainChartPoints}
           chartTitle={chartTitle}
-          prettifyMetricLabel={prettifyMetricLabel}
+          prettifyMetricLabel={(code) => prettifyMetricLabel(code, metricDefs)}
           combinedOracleMetricKey={COMBINED_ORACLE_METRIC_KEY}
         />
       </div>
@@ -526,14 +511,14 @@ export default function Dashboard() {
         selectedDbIsMysql={selectedDbIsMysql}
         selectedDbName={selectedDbName}
         latestMetricValuesChart={latestMetricValuesChart}
-        prettifyMetricLabel={prettifyMetricLabel}
+        prettifyMetricLabel={(code) => prettifyMetricLabel(code, metricDefs)}
       />
 
       <div style={{ height: 12 }} />
 
       <DashboardRecentTable
         recentRows={recentRows}
-        prettifyMetricLabel={prettifyMetricLabel}
+        prettifyMetricLabel={(code) => prettifyMetricLabel(code, metricDefs)}
       />
 
       {!selectedDbIsMysql ? (
