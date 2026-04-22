@@ -51,7 +51,6 @@ export default function AnalyseurSQL() {
       buffer_gets: row.buffer_gets ?? null,
       disk_reads: row.disk_reads ?? null,
       last_active_time: row.last_active_time || null,
-
       phv_count: row.phv_count ?? phvList.length,
       phv_list: phvList,
       has_phv: row.has_phv ?? phvList.length > 0,
@@ -102,18 +101,17 @@ export default function AnalyseurSQL() {
         params.append("exclude_schema", "DBMON");
       }
 
-      const result = await apiGet(`/sql-analyzer/top-queries?${params.toString()}`, {
-        success: false,
-        queries: [],
-      });
+      const result = await apiGet(
+        `/sql-analyzer/top-queries?${params.toString()}`,
+        {
+          success: false,
+          queries: [],
+        }
+      );
 
-      let mapped = Array.isArray(result?.queries)
+      const mapped = Array.isArray(result?.queries)
         ? result.queries.map(mapTopQueryToUiScript)
         : [];
-
-      mapped = mapped.filter(
-        (row) => Array.isArray(row.phv_list) && row.phv_list.length > 0
-      );
 
       setTopQueries(mapped);
     } catch (e) {
@@ -139,7 +137,7 @@ export default function AnalyseurSQL() {
       setMessage({ type: "", text: "" });
       setSelectedPhv(phv);
 
-      const textResult = await apiGet(
+      const result = await apiGet(
         `/sql-analyzer/sql-plan-text?db_id=${selectedDbId}&sql_id=${encodeURIComponent(
           sqlId
         )}&phv=${encodeURIComponent(phv)}&format_value=${encodeURIComponent("TYPICAL")}`,
@@ -150,7 +148,7 @@ export default function AnalyseurSQL() {
         }
       );
 
-      setPlanText(textResult?.plan_text || "");
+      setPlanText(result?.plan_text || "");
     } catch (e) {
       console.error(e);
       setPlanText("");
@@ -273,6 +271,16 @@ export default function AnalyseurSQL() {
     return `${clean.slice(0, max)}...`;
   }
 
+  async function handleCopyPlan() {
+    if (!planText) return;
+    try {
+      await navigator.clipboard.writeText(planText);
+      setMessage({ type: "success", text: "Plan copié dans le presse-papiers." });
+    } catch {
+      setMessage({ type: "warning", text: "Copie impossible sur ce navigateur." });
+    }
+  }
+
   if (loading) {
     return <div style={styles.page}>Chargement...</div>;
   }
@@ -295,7 +303,7 @@ export default function AnalyseurSQL() {
         <div>
           <div style={styles.pageTitle}>SQL Analyzer</div>
           <div style={styles.pageSubtitle}>
-            Top 10 requêtes SQL + PHV et plan d'exécution Oracle
+            Top 10 requêtes SQL avec PHV et plan d'exécution Oracle
           </div>
         </div>
 
@@ -385,6 +393,7 @@ export default function AnalyseurSQL() {
             formatNumber={formatNumber}
             truncateSql={truncateSql}
             formatDateTime={formatDateTime}
+            sortBy={sortBy}
           />
         )}
       </SectionCard>
@@ -394,12 +403,23 @@ export default function AnalyseurSQL() {
       <SectionCard>
         <div style={styles.rightPanelHeader}>
           <div style={styles.panelHeaderTitle}>Plan d'exécution Oracle (DBMS_XPLAN)</div>
-          <div style={styles.planMeta}>
-            <span>SQL_ID</span>
-            <strong>{selectedScript?.sql_id || "—"}</strong>
-            <span>•</span>
-            <span>PHV</span>
-            <strong>{selectedPhv !== null ? formatNumber(selectedPhv) : "—"}</strong>
+          <div style={styles.planHeaderActions}>
+            <div style={styles.planMeta}>
+              <span>SQL_ID</span>
+              <strong>{selectedScript?.sql_id || "—"}</strong>
+              <span>•</span>
+              <span>PHV</span>
+              <strong>{selectedPhv !== null ? formatNumber(selectedPhv) : "—"}</strong>
+            </div>
+
+            <button
+              type="button"
+              style={styles.copyButton}
+              onClick={handleCopyPlan}
+              disabled={!planText}
+            >
+              Copier le plan
+            </button>
           </div>
         </div>
 
@@ -460,6 +480,31 @@ function InfoBox({ text }) {
   return <div style={styles.infoBox}>{text}</div>;
 }
 
+function MetricBadge({ sortBy, row, formatNumber }) {
+  const labelMap = {
+    elapsed_time: "Elapsed",
+    cpu_time: "CPU",
+    buffer_gets: "Buffer",
+    disk_reads: "Disk",
+    executions: "Exec",
+  };
+
+  const valueMap = {
+    elapsed_time: row.elapsed_time_sec,
+    cpu_time: row.cpu_time_sec,
+    buffer_gets: row.buffer_gets,
+    disk_reads: row.disk_reads,
+    executions: row.executions,
+  };
+
+  return (
+    <div style={styles.metricBadge}>
+      <span style={styles.metricBadgeLabel}>{labelMap[sortBy] || "Metric"}</span>
+      <span style={styles.metricBadgeValue}>{formatNumber(valueMap[sortBy])}</span>
+    </div>
+  );
+}
+
 function TopQueryTable({
   rows,
   selectedScriptId,
@@ -469,6 +514,7 @@ function TopQueryTable({
   formatNumber,
   truncateSql,
   formatDateTime,
+  sortBy,
 }) {
   return (
     <div style={styles.tableWrap}>
@@ -479,6 +525,7 @@ function TopQueryTable({
             <th style={styles.th}>SCHÉMA</th>
             <th style={styles.th}>EXTRAIT SQL</th>
             <th style={styles.th}>PHV (PLAN_HASH_VALUE)</th>
+            <th style={styles.th}>MÉTRIQUE ACTIVE</th>
             <th style={styles.th}>EXÉCUTIONS</th>
             <th style={styles.th}>ELAPSED (S)</th>
             <th style={styles.th}>CPU (S)</th>
@@ -552,6 +599,9 @@ function TopQueryTable({
                   </div>
                 </td>
 
+                <td style={styles.tdCenter}>
+                  <MetricBadge sortBy={sortBy} row={row} formatNumber={formatNumber} />
+                </td>
                 <td style={styles.tdCenter}>{formatNumber(row.executions)}</td>
                 <td style={styles.tdCenter}>{formatNumber(row.elapsed_time_sec)}</td>
                 <td style={styles.tdCenter}>{formatNumber(row.cpu_time_sec)}</td>
@@ -658,6 +708,12 @@ const styles = {
     gap: 12,
     flexWrap: "wrap",
   },
+  planHeaderActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    flexWrap: "wrap",
+  },
   planMeta: {
     display: "flex",
     gap: 8,
@@ -666,6 +722,15 @@ const styles = {
     fontSize: 13,
     color: "#6a7b9e",
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+  },
+  copyButton: {
+    border: "1px solid #d9e2f2",
+    background: "#ffffff",
+    color: "#36558f",
+    borderRadius: 10,
+    padding: "0.55rem 0.85rem",
+    fontWeight: 700,
+    cursor: "pointer",
   },
   separator: {
     height: 1,
@@ -783,6 +848,26 @@ const styles = {
     background: "#2563eb",
     color: "#fff",
     border: "1px solid #2563eb",
+  },
+  metricBadge: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "0.28rem 0.55rem",
+    borderRadius: 999,
+    background: "#f8fafc",
+    border: "1px solid #e2e8f0",
+  },
+  metricBadgeLabel: {
+    fontSize: 10,
+    fontWeight: 800,
+    color: "#64748b",
+    textTransform: "uppercase",
+  },
+  metricBadgeValue: {
+    fontSize: 11,
+    fontWeight: 800,
+    color: "#0f172a",
   },
   emptyMini: {
     color: "#9aa8c2",

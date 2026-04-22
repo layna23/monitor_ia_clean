@@ -385,11 +385,6 @@ def _oracle_enrich_top_queries_with_phv(cursor, queries: List[Dict[str, Any]]) -
     for item in queries:
         sql_id = item.get("sql_id")
         if not sql_id:
-            item["phv_count"] = 0
-            item["phv_list"] = []
-            item["has_phv"] = False
-            item["has_multiple_phv"] = False
-            enriched.append(item)
             continue
 
         summary = _oracle_get_sql_phv_summary(cursor, str(sql_id))
@@ -399,7 +394,8 @@ def _oracle_enrich_top_queries_with_phv(cursor, queries: List[Dict[str, Any]]) -
         item["has_multiple_phv"] = summary["has_multiple_phv"]
         item["default_phv"] = summary["phv_list"][0] if summary["phv_list"] else None
 
-        enriched.append(item)
+        if item["has_phv"]:
+            enriched.append(item)
 
     return enriched
 
@@ -628,6 +624,11 @@ def get_top_sql_queries(
         raw_rows = cursor.fetchall() if columns else []
         queries = [dict(zip(columns, [_serialize_value(v) for v in row])) for row in raw_rows]
 
+        queries = [
+            row for row in queries
+            if row.get("sql_id")
+        ]
+
         if exclude_schema:
             queries = [
                 row for row in queries
@@ -643,7 +644,8 @@ def get_top_sql_queries(
             except Exception:
                 return float("-inf")
 
-        queries = sorted(queries, key=_sort_value, reverse=True)[:limit]
+        queries = sorted(queries, key=_sort_value, reverse=True)
+        queries = queries[:limit]
         queries = _oracle_enrich_top_queries_with_phv(cursor, queries)
 
         return {
