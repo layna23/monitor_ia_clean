@@ -8,27 +8,19 @@ export default function DbTypes() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState({ type: "", text: "" });
 
-  const [openCreate, setOpenCreate] = useState(false);
-  const [editItem, setEditItem] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
 
-  const [createForm, setCreateForm] = useState({
+  const emptyForm = {
     code: "",
     name: "",
     version: "",
     driver: "",
     status: "ACTIVE",
     description: "",
-  });
+  };
 
-  const [editForm, setEditForm] = useState({
-    code: "",
-    name: "",
-    version: "",
-    driver: "",
-    status: "ACTIVE",
-    description: "",
-  });
+  const [form, setForm] = useState(emptyForm);
+  const [editId, setEditId] = useState(null);
 
   async function apiGet(endpoint, defaultValue = null) {
     try {
@@ -94,82 +86,66 @@ export default function DbTypes() {
     return () => clearTimeout(timer);
   }, [message]);
 
+  function resetForm() {
+    setForm(emptyForm);
+    setEditId(null);
+  }
+
   function badgeStatus(status) {
     const s = String(status || "").toUpperCase();
-    if (s === "ACTIVE") return <span style={styles.badgeSuccess}>ACTIF</span>;
-    if (s === "INACTIVE") return <span style={styles.badgeError}>INACTIF</span>;
+    if (s === "ACTIVE") return <span style={styles.badgeSuccess}>ACTIVE</span>;
+    if (s === "INACTIVE") return <span style={styles.badgeError}>INACTIVE</span>;
     if (s === "BETA") return <span style={styles.badgeWarning}>BETA</span>;
     return <span style={styles.badgeInfo}>{s || "—"}</span>;
   }
 
-  function resetCreateForm() {
-    setCreateForm({
-      code: "",
-      name: "",
-      version: "",
-      driver: "",
-      status: "ACTIVE",
-      description: "",
-    });
-  }
-
-  function openEditDialog(item) {
-    setEditItem(item);
+  function openEdit(item) {
     setDeleteItem(null);
-    setOpenCreate(false);
-    setEditForm({
+    setEditId(item.db_type_id);
+    setForm({
       code: item.code || "",
       name: item.name || "",
       version: item.version || "",
       driver: item.driver || "",
-      status: (item.status || "ACTIVE").toUpperCase(),
+      status: String(item.status || "ACTIVE").toUpperCase(),
       description: item.description || "",
     });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  async function handleCreate() {
-    if (!createForm.code.trim() || !createForm.name.trim()) {
+  async function handleSave() {
+    if (!form.code.trim() || !form.name.trim()) {
       setMessage({ type: "warning", text: "Code et Nom sont obligatoires." });
       return;
     }
 
-    try {
-      await apiPost("/db-types/", {
-        code: createForm.code.trim().toUpperCase(),
-        name: createForm.name.trim(),
-        version: createForm.version.trim(),
-        driver: createForm.driver.trim(),
-        status: createForm.status,
-        description: createForm.description.trim(),
-      });
-
-      setMessage({ type: "success", text: "Type BD créé ✅" });
-      setOpenCreate(false);
-      resetCreateForm();
-      await loadDbTypes();
-    } catch {
-      setMessage({ type: "error", text: "Erreur lors de la création." });
-    }
-  }
-
-  async function handleEditSave() {
-    if (!editItem) return;
+    const payload = {
+      code: form.code.trim().toUpperCase(),
+      name: form.name.trim(),
+      version: form.version.trim(),
+      driver: form.driver.trim(),
+      status: form.status,
+      description: form.description.trim(),
+    };
 
     try {
-      await apiPut(`/db-types/${editItem.db_type_id}`, {
-        code: editForm.code.trim().toUpperCase(),
-        name: editForm.name.trim(),
-        version: editForm.version.trim(),
-        driver: editForm.driver.trim(),
-        status: editForm.status,
-        description: editForm.description.trim(),
-      });
+      if (editId) {
+        await apiPut(`/db-types/${editId}`, payload);
+        setMessage({ type: "success", text: "Type BD modifié ✅" });
+      } else {
+        await apiPost("/db-types/", payload);
+        setMessage({ type: "success", text: "Type BD créé ✅" });
+      }
 
-      setMessage({ type: "success", text: "Modifié ✅" });
-      setEditItem(null);
+      resetForm();
       await loadDbTypes();
     } catch {
-      setMessage({ type: "error", text: "Erreur lors de la modification." });
+      setMessage({
+        type: "error",
+        text: editId
+          ? "Erreur lors de la modification."
+          : "Erreur lors de la création.",
+      });
     }
   }
 
@@ -178,7 +154,8 @@ export default function DbTypes() {
 
     try {
       await apiDelete(`/db-types/${deleteItem.db_type_id}`);
-      setMessage({ type: "success", text: "Supprimé ✅" });
+      setMessage({ type: "success", text: "Type BD supprimé ✅" });
+      if (editId === deleteItem.db_type_id) resetForm();
       setDeleteItem(null);
       await loadDbTypes();
     } catch {
@@ -189,11 +166,6 @@ export default function DbTypes() {
   const filteredData = useMemo(() => {
     let result = Array.isArray(data) ? data : [];
 
-    // cacher les éléments supprimés / inactifs
-    result = result.filter(
-      (x) => String(x.status || "").toUpperCase() !== "INACTIVE"
-    );
-
     if (!search.trim()) return result;
 
     const s = search.toLowerCase().trim();
@@ -202,7 +174,8 @@ export default function DbTypes() {
       (x) =>
         String(x.code || "").toLowerCase().includes(s) ||
         String(x.name || "").toLowerCase().includes(s) ||
-        String(x.driver || "").toLowerCase().includes(s)
+        String(x.driver || "").toLowerCase().includes(s) ||
+        String(x.version || "").toLowerCase().includes(s)
     );
   }, [data, search]);
 
@@ -221,214 +194,171 @@ export default function DbTypes() {
         </div>
       ) : null}
 
-      <div style={styles.toolbar}>
+      <div style={styles.topActions}>
         <input
           style={styles.searchInput}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="🔎 Rechercher Oracle, postgresql…"
+          placeholder="🔎 Rechercher Oracle, PostgreSQL, driver..."
         />
 
-        <button
-          style={styles.primaryButton}
-          onClick={() => {
-            setOpenCreate(true);
-            setEditItem(null);
-            setDeleteItem(null);
-          }}
-        >
-          ➕ Nouveau type BD
+        <button style={styles.secondaryButton} onClick={loadDbTypes}>
+          🔄 Rafraîchir
         </button>
       </div>
 
-      {openCreate && (
-        <Modal
-          title="Créer un type BD"
-          onClose={() => {
-            setOpenCreate(false);
-            resetCreateForm();
-          }}
-        >
-          <div style={styles.grid2}>
-            <div>
-              <FieldLabel text="Code *" />
-              <input
-                style={styles.input}
-                value={createForm.code}
-                placeholder="ORACLE"
-                onChange={(e) =>
-                  setCreateForm((p) => ({ ...p, code: e.target.value }))
-                }
-              />
-            </div>
+      <SectionCard>
+        <SectionTitle text={editId ? "✏️ MODIFIER UN TYPE BD" : "🗂️ AJOUTER UN TYPE BD"} />
+        <div style={styles.helperText}>
+          Le code doit être unique. Utilise cette section pour ajouter ou modifier un SGBD.
+        </div>
 
-            <div>
-              <FieldLabel text="Nom *" />
-              <input
-                style={styles.input}
-                value={createForm.name}
-                placeholder="Oracle Database"
-                onChange={(e) =>
-                  setCreateForm((p) => ({ ...p, name: e.target.value }))
-                }
-              />
-            </div>
-
-            <div>
-              <FieldLabel text="Version" />
-              <input
-                style={styles.input}
-                value={createForm.version}
-                placeholder="19c"
-                onChange={(e) =>
-                  setCreateForm((p) => ({ ...p, version: e.target.value }))
-                }
-              />
-            </div>
-
-            <div>
-              <FieldLabel text="Driver" />
-              <input
-                style={styles.input}
-                value={createForm.driver}
-                placeholder="cx_Oracle"
-                onChange={(e) =>
-                  setCreateForm((p) => ({ ...p, driver: e.target.value }))
-                }
-              />
-            </div>
-          </div>
-
-          <div style={{ marginTop: 14 }}>
-            <FieldLabel text="Statut" />
-            <select
-              style={styles.select}
-              value={createForm.status}
-              onChange={(e) =>
-                setCreateForm((p) => ({ ...p, status: e.target.value }))
-              }
-            >
-              <option>ACTIVE</option>
-              <option>INACTIVE</option>
-              <option>BETA</option>
-            </select>
-          </div>
-
-          <div style={{ marginTop: 14 }}>
-            <FieldLabel text="Description" />
-            <textarea
-              style={styles.textarea}
-              rows={4}
-              value={createForm.description}
-              placeholder="Description du SGBD…"
-              onChange={(e) =>
-                setCreateForm((p) => ({ ...p, description: e.target.value }))
-              }
+        <div style={styles.formGrid}>
+          <div>
+            <FieldLabel text="Code *" />
+            <input
+              style={styles.input}
+              value={form.code}
+              placeholder="ex: ORACLE"
+              onChange={(e) => setForm((p) => ({ ...p, code: e.target.value }))}
             />
           </div>
 
-          <div style={styles.buttonRow}>
+          <div>
+            <FieldLabel text="Nom *" />
+            <input
+              style={styles.input}
+              value={form.name}
+              placeholder="ex: Oracle Database"
+              onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+            />
+          </div>
+
+          <div>
+            <FieldLabel text="Version" />
+            <input
+              style={styles.input}
+              value={form.version}
+              placeholder="ex: 19c"
+              onChange={(e) => setForm((p) => ({ ...p, version: e.target.value }))}
+            />
+          </div>
+
+          <div>
+            <FieldLabel text="Driver" />
+            <input
+              style={styles.input}
+              value={form.driver}
+              placeholder="ex: oracledb"
+              onChange={(e) => setForm((p) => ({ ...p, driver: e.target.value }))}
+            />
+          </div>
+
+          <div>
+            <FieldLabel text="Statut" />
+            <select
+              style={styles.select}
+              value={form.status}
+              onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))}
+            >
+              <option value="ACTIVE">ACTIVE</option>
+              <option value="INACTIVE">INACTIVE</option>
+              <option value="BETA">BETA</option>
+            </select>
+          </div>
+
+          <div>
+            <FieldLabel text="Aperçu statut" />
+            <div style={styles.previewBox}>{badgeStatus(form.status)}</div>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 14 }}>
+          <FieldLabel text="Description" />
+          <textarea
+            style={styles.textarea}
+            rows={5}
+            value={form.description}
+            placeholder="Description du SGBD..."
+            onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
+          />
+        </div>
+
+        <div style={styles.buttonRow}>
+          <button style={styles.primaryButton} onClick={handleSave}>
+            {editId ? "💾 Enregistrer" : "➕ Créer"}
+          </button>
+
+          <button style={styles.secondaryButton} onClick={resetForm}>
+            🧹 Réinitialiser
+          </button>
+
+          {editId ? (
             <button
-              style={styles.secondaryButton}
+              style={styles.dangerButton}
               onClick={() => {
-                setOpenCreate(false);
-                resetCreateForm();
+                const current = data.find((x) => x.db_type_id === editId);
+                if (current) setDeleteItem(current);
               }}
             >
-              Annuler
+              🗑️ Supprimer
             </button>
-            <button style={styles.primaryButton} onClick={handleCreate}>
-              Créer
-            </button>
+          ) : null}
+        </div>
+      </SectionCard>
+
+      <div style={{ height: 20 }} />
+
+      <SectionCard>
+        <SectionTitle text="📋 TABLE DB_TYPES" />
+
+        {loading ? (
+          <InfoBox text="Chargement..." />
+        ) : !filteredData.length ? (
+          <div style={styles.emptyState}>
+            <div style={styles.emptyIcon}>🗂️</div>
+            <div style={styles.emptyTitle}>Aucun type BD trouvé</div>
+            <div style={styles.emptySub}>Vérifie la recherche ou ajoute un nouveau type.</div>
           </div>
-        </Modal>
-      )}
-
-      {editItem && (
-        <Modal title="Modifier le type BD" onClose={() => setEditItem(null)}>
-          <div style={styles.grid2}>
-            <div>
-              <FieldLabel text="Code" />
-              <input
-                style={styles.input}
-                value={editForm.code}
-                onChange={(e) =>
-                  setEditForm((p) => ({ ...p, code: e.target.value }))
-                }
-              />
-            </div>
-
-            <div>
-              <FieldLabel text="Nom" />
-              <input
-                style={styles.input}
-                value={editForm.name}
-                onChange={(e) =>
-                  setEditForm((p) => ({ ...p, name: e.target.value }))
-                }
-              />
-            </div>
-
-            <div>
-              <FieldLabel text="Version" />
-              <input
-                style={styles.input}
-                value={editForm.version}
-                onChange={(e) =>
-                  setEditForm((p) => ({ ...p, version: e.target.value }))
-                }
-              />
-            </div>
-
-            <div>
-              <FieldLabel text="Driver" />
-              <input
-                style={styles.input}
-                value={editForm.driver}
-                onChange={(e) =>
-                  setEditForm((p) => ({ ...p, driver: e.target.value }))
-                }
-              />
-            </div>
-          </div>
-
-          <div style={{ marginTop: 14 }}>
-            <FieldLabel text="Statut" />
-            <select
-              style={styles.select}
-              value={editForm.status}
-              onChange={(e) =>
-                setEditForm((p) => ({ ...p, status: e.target.value }))
-              }
-            >
-              <option>ACTIVE</option>
-              <option>INACTIVE</option>
-              <option>BETA</option>
-            </select>
-          </div>
-
-          <div style={{ marginTop: 14 }}>
-            <FieldLabel text="Description" />
-            <textarea
-              style={styles.textarea}
-              rows={4}
-              value={editForm.description}
-              onChange={(e) =>
-                setEditForm((p) => ({ ...p, description: e.target.value }))
-              }
-            />
-          </div>
-
-          <div style={styles.buttonRow}>
-            <button style={styles.secondaryButton} onClick={() => setEditItem(null)}>
-              Annuler
-            </button>
-            <button style={styles.primaryButton} onClick={handleEditSave}>
-              Enregistrer
-            </button>
-          </div>
-        </Modal>
-      )}
+        ) : (
+          <DataTable
+            columns={[
+              "db_type_id",
+              "code",
+              "name",
+              "version",
+              "driver",
+              "description",
+              "status",
+              "actions",
+            ]}
+            rows={filteredData.map((item) => ({
+              ...item,
+              actions: (
+                <div style={styles.tableActions}>
+                  <button
+                    style={styles.tableEditButton}
+                    onClick={() => openEdit(item)}
+                  >
+                    Modifier
+                  </button>
+                  <button
+                    style={styles.tableDeleteButton}
+                    onClick={() => setDeleteItem(item)}
+                  >
+                    Supprimer
+                  </button>
+                </div>
+              ),
+            }))}
+            renderCell={(col, row) => {
+              if (col === "status") return badgeStatus(row.status);
+              if (col === "actions") return row.actions;
+              return row[col] != null && row[col] !== "" ? String(row[col]) : "—";
+            }}
+          />
+        )}
+      </SectionCard>
 
       {deleteItem && (
         <Modal title="Supprimer le type BD" onClose={() => setDeleteItem(null)}>
@@ -447,91 +377,6 @@ export default function DbTypes() {
           </div>
         </Modal>
       )}
-
-      <div style={styles.sectionTitleTop}>🧩 SGBD SUPPORTÉS</div>
-
-      {loading ? (
-        <InfoBox text="Chargement..." />
-      ) : !filteredData.length ? (
-        <div style={styles.emptyState}>
-          <div style={styles.emptyIcon}>🧩</div>
-          <div style={styles.emptyTitle}>Aucun type BD trouvé</div>
-        </div>
-      ) : (
-        <div style={styles.cardsGrid}>
-          {filteredData.map((item) => (
-            <div key={item.db_type_id} style={styles.card}>
-              <div style={styles.dbTypeHeader}>
-                <div>
-                  <div style={styles.dbTypeTitle}>{item.name || ""}</div>
-                  <div style={styles.dbTypeSub}>
-                    Code : {item.code || ""} · ID : {item.db_type_id || ""}
-                  </div>
-                </div>
-                {badgeStatus(item.status)}
-              </div>
-
-              <div style={styles.dbTypeGrid}>
-                <div style={styles.dbTypeBox}>
-                  <div style={styles.dbTypeLabel}>VERSION</div>
-                  <div style={styles.dbTypeValue}>{item.version || "—"}</div>
-                </div>
-
-                <div style={styles.dbTypeBox}>
-                  <div style={styles.dbTypeLabel}>DRIVER</div>
-                  <div style={styles.dbTypeValue}>{item.driver || "—"}</div>
-                </div>
-              </div>
-
-              <div style={styles.dbTypeDesc}>
-                {item.description || "Aucune description"}
-              </div>
-
-              <div style={styles.buttonRow}>
-                <button
-                  style={styles.secondaryButton}
-                  onClick={() => openEditDialog(item)}
-                >
-                  ✏️ Modifier
-                </button>
-
-                <button
-                  style={styles.dangerButton}
-                  onClick={() => {
-                    setDeleteItem(item);
-                    setEditItem(null);
-                    setOpenCreate(false);
-                  }}
-                >
-                  🗑️ Supprimer
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div style={{ height: 20 }} />
-
-      <SectionCard>
-        <SectionTitle text="📋 TABLE DB_TYPES" />
-        {!filteredData.length ? (
-          <InfoBox text="Aucune donnée." />
-        ) : (
-          <DataTable
-            columns={["db_type_id", "code", "name", "version", "driver", "description", "status"]}
-            rows={filteredData.map((item) => ({
-              db_type_id: item.db_type_id,
-              code: item.code,
-              name: item.name,
-              version: item.version,
-              driver: item.driver,
-              description: item.description,
-              status: item.status,
-            }))}
-          />
-        )}
-      </SectionCard>
     </div>
   );
 }
@@ -587,7 +432,7 @@ function InfoBox({ text }) {
   return <div style={styles.infoBox}>{text}</div>;
 }
 
-function DataTable({ columns, rows }) {
+function DataTable({ columns, rows, renderCell }) {
   return (
     <div style={styles.tableWrap}>
       <table style={styles.table}>
@@ -605,7 +450,7 @@ function DataTable({ columns, rows }) {
             <tr key={idx} style={idx % 2 === 0 ? styles.rowEven : styles.rowOdd}>
               {columns.map((col) => (
                 <td key={col} style={styles.td}>
-                  {row[col] != null && row[col] !== "" ? String(row[col]) : "—"}
+                  {renderCell ? renderCell(col, row) : row[col]}
                 </td>
               ))}
             </tr>
@@ -623,6 +468,7 @@ const styles = {
     minHeight: "100vh",
     color: "#0d1b2a",
   },
+
   pageTitle: {
     fontSize: 30,
     fontWeight: 900,
@@ -630,56 +476,64 @@ const styles = {
     marginBottom: 6,
     letterSpacing: "-0.02em",
   },
+
   pageSubtitle: {
     fontSize: 14,
     color: "#526077",
   },
-  toolbar: {
-    display: "grid",
-    gridTemplateColumns: "2.5fr 1.5fr 6fr",
+
+  topActions: {
+    display: "flex",
     gap: 12,
     alignItems: "center",
     marginBottom: 18,
+    flexWrap: "wrap",
   },
+
   searchInput: {
-    width: "100%",
-    padding: "0.75rem 0.9rem",
+    width: 360,
+    maxWidth: "100%",
+    padding: "0.85rem 0.95rem",
     borderRadius: 12,
     border: "1.5px solid #e4e9f2",
     background: "#fff",
     fontSize: 14,
     boxSizing: "border-box",
   },
+
   primaryButton: {
     border: "1.5px solid #2563eb",
     background: "#2563eb",
     color: "#fff",
     borderRadius: 12,
-    padding: "0.75rem 1rem",
+    padding: "0.85rem 1.1rem",
     fontWeight: 700,
     fontSize: 14,
     cursor: "pointer",
   },
+
   secondaryButton: {
     border: "1.5px solid #e4e9f2",
     background: "#fff",
     color: "#0d1b2a",
     borderRadius: 12,
-    padding: "0.75rem 1rem",
+    padding: "0.85rem 1.1rem",
     fontWeight: 700,
     fontSize: 14,
     cursor: "pointer",
   },
+
   dangerButton: {
     border: "1.5px solid #fecdd3",
     background: "#fff1f2",
     color: "#9f1239",
     borderRadius: 12,
-    padding: "0.75rem 1rem",
+    padding: "0.85rem 1.1rem",
     fontWeight: 700,
     fontSize: 14,
     cursor: "pointer",
   },
+
   card: {
     background: "#ffffff",
     border: "1px solid #e4e9f2",
@@ -687,8 +541,9 @@ const styles = {
     padding: 20,
     boxShadow: "0 2px 8px rgba(13,27,42,0.08)",
   },
+
   sectionTitle: {
-    fontSize: "0.67rem",
+    fontSize: "0.72rem",
     fontWeight: 800,
     textTransform: "uppercase",
     letterSpacing: "0.12em",
@@ -697,95 +552,49 @@ const styles = {
     borderBottom: "1px solid #e4e9f2",
     marginBottom: 14,
   },
-  sectionTitleTop: {
-    fontSize: "0.67rem",
-    fontWeight: 800,
-    textTransform: "uppercase",
-    letterSpacing: "0.12em",
-    color: "#8fa0bb",
-    marginBottom: 12,
+
+  helperText: {
+    fontSize: 14,
+    color: "#7b8aa3",
+    marginBottom: 18,
   },
-  cardsGrid: {
+
+  formGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
     gap: 16,
   },
-  dbTypeHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 12,
-    marginBottom: 16,
-  },
-  dbTypeTitle: {
-    fontSize: "1rem",
-    fontWeight: 700,
-    color: "#0d1b2a",
-    marginBottom: 4,
-  },
-  dbTypeSub: {
-    fontSize: "0.78rem",
-    color: "#64748b",
-  },
-  dbTypeGrid: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 12,
-    marginBottom: 14,
-  },
-  dbTypeBox: {
-    background: "#f8fafc",
-    border: "1px solid #e2e8f0",
-    borderRadius: 12,
-    padding: "0.8rem 0.9rem",
-  },
-  dbTypeLabel: {
-    fontSize: "0.62rem",
-    fontWeight: 800,
-    textTransform: "uppercase",
-    letterSpacing: "0.1em",
-    color: "#94a3b8",
-    marginBottom: 6,
-  },
-  dbTypeValue: {
-    fontSize: "0.9rem",
-    fontWeight: 700,
-    color: "#0d1b2a",
-  },
-  dbTypeDesc: {
-    fontSize: "0.84rem",
-    lineHeight: 1.55,
-    color: "#526077",
-    minHeight: 56,
-    marginBottom: 14,
-  },
+
   label: {
-    fontSize: "0.78rem",
+    fontSize: "0.9rem",
     fontWeight: 600,
     color: "#526077",
-    marginBottom: 6,
+    marginBottom: 8,
   },
+
   input: {
     width: "100%",
-    padding: "0.75rem 0.9rem",
+    padding: "0.9rem 1rem",
     borderRadius: 12,
     border: "1.5px solid #e4e9f2",
     background: "#fff",
     fontSize: 14,
     boxSizing: "border-box",
   },
+
   select: {
     width: "100%",
-    padding: "0.75rem 0.9rem",
+    padding: "0.9rem 1rem",
     borderRadius: 12,
     border: "1.5px solid #e4e9f2",
     background: "#fff",
     fontSize: 14,
     boxSizing: "border-box",
   },
+
   textarea: {
     width: "100%",
-    padding: "0.9rem",
+    padding: "1rem",
     borderRadius: 12,
     border: "1.5px solid #e4e9f2",
     background: "#fff",
@@ -794,53 +603,69 @@ const styles = {
     boxSizing: "border-box",
     resize: "vertical",
   },
-  grid2: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 14,
+
+  previewBox: {
+    minHeight: 48,
+    display: "flex",
+    alignItems: "center",
+    padding: "0.7rem 0.9rem",
+    borderRadius: 12,
+    border: "1.5px solid #e4e9f2",
+    background: "#fff",
+    boxSizing: "border-box",
   },
+
   buttonRow: {
     display: "flex",
     gap: 12,
-    marginTop: 16,
+    marginTop: 18,
     flexWrap: "wrap",
   },
+
   badgeSuccess: {
     background: "#f0fdf4",
     color: "#166534",
     border: "1px solid #bbf7d0",
     borderRadius: 999,
-    padding: "0.2rem 0.7rem",
+    padding: "0.25rem 0.75rem",
     fontSize: "0.72rem",
     fontWeight: 700,
+    display: "inline-block",
   },
+
   badgeError: {
     background: "#fff1f2",
     color: "#9f1239",
     border: "1px solid #fecdd3",
     borderRadius: 999,
-    padding: "0.2rem 0.7rem",
+    padding: "0.25rem 0.75rem",
     fontSize: "0.72rem",
     fontWeight: 700,
+    display: "inline-block",
   },
+
   badgeWarning: {
     background: "#fffbeb",
     color: "#92400e",
     border: "1px solid #fde68a",
     borderRadius: 999,
-    padding: "0.2rem 0.7rem",
+    padding: "0.25rem 0.75rem",
     fontSize: "0.72rem",
     fontWeight: 700,
+    display: "inline-block",
   },
+
   badgeInfo: {
     background: "#eff6ff",
     color: "#1d4ed8",
     border: "1px solid #bfdbfe",
     borderRadius: 999,
-    padding: "0.2rem 0.7rem",
+    padding: "0.25rem 0.75rem",
     fontSize: "0.72rem",
     fontWeight: 700,
+    display: "inline-block",
   },
+
   modalOverlay: {
     position: "fixed",
     inset: 0,
@@ -851,9 +676,10 @@ const styles = {
     zIndex: 1000,
     padding: 20,
   },
+
   modal: {
     width: "100%",
-    maxWidth: 700,
+    maxWidth: 560,
     background: "#fff",
     borderRadius: 18,
     border: "1px solid #e4e9f2",
@@ -861,12 +687,14 @@ const styles = {
     padding: 22,
     position: "relative",
   },
+
   modalTitle: {
     fontSize: 20,
     fontWeight: 900,
     color: "#0d1b2a",
     marginBottom: 16,
   },
+
   modalClose: {
     position: "absolute",
     top: 12,
@@ -877,26 +705,31 @@ const styles = {
     cursor: "pointer",
     color: "#64748b",
   },
+
   deleteBox: {
     background: "#fff1f2",
     border: "1px solid #fecdd3",
     borderRadius: 10,
-    padding: "0.9rem",
+    padding: "0.95rem",
     marginBottom: "1rem",
-    fontSize: "0.875rem",
+    fontSize: "0.9rem",
     color: "#9f1239",
+    lineHeight: 1.5,
   },
+
   tableWrap: {
     overflowX: "auto",
     borderRadius: 12,
     overflow: "hidden",
     border: "1px solid #e4e9f2",
   },
+
   table: {
     width: "100%",
     borderCollapse: "collapse",
     background: "#fff",
   },
+
   th: {
     background: "#f1f5fb",
     fontSize: "0.72rem",
@@ -904,23 +737,57 @@ const styles = {
     textTransform: "uppercase",
     letterSpacing: "0.07em",
     color: "#8fa0bb",
-    padding: "0.65rem 0.9rem",
+    padding: "0.8rem 0.9rem",
     borderBottom: "1px solid #e4e9f2",
     textAlign: "left",
+    whiteSpace: "nowrap",
   },
+
   td: {
-    fontSize: "0.82rem",
+    fontSize: "0.84rem",
     color: "#0d1b2a",
-    padding: "0.7rem 0.9rem",
+    padding: "0.8rem 0.9rem",
     borderBottom: "1px solid #f1f5fb",
     textAlign: "left",
+    verticalAlign: "middle",
   },
+
   rowEven: {
     background: "#ffffff",
   },
+
   rowOdd: {
     background: "#fbfdff",
   },
+
+  tableActions: {
+    display: "flex",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+
+  tableEditButton: {
+    border: "1px solid #dbe5f3",
+    background: "#fff",
+    color: "#0d1b2a",
+    borderRadius: 10,
+    padding: "0.45rem 0.75rem",
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+
+  tableDeleteButton: {
+    border: "1px solid #fecdd3",
+    background: "#fff1f2",
+    color: "#9f1239",
+    borderRadius: 10,
+    padding: "0.45rem 0.75rem",
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+
   successBox: {
     background: "#f0fdf4",
     border: "1px solid #bbf7d0",
@@ -929,6 +796,7 @@ const styles = {
     color: "#166534",
     fontWeight: 800,
   },
+
   errorBox: {
     background: "#fff1f2",
     border: "1px solid #fecdd3",
@@ -937,6 +805,7 @@ const styles = {
     color: "#9f1239",
     fontWeight: 800,
   },
+
   warningBox: {
     background: "#fffbeb",
     border: "1px solid #fde68a",
@@ -945,6 +814,7 @@ const styles = {
     color: "#92400e",
     fontWeight: 800,
   },
+
   infoBox: {
     background: "#eff6ff",
     border: "1px solid #bfdbfe",
@@ -953,6 +823,7 @@ const styles = {
     color: "#1d4ed8",
     fontWeight: 700,
   },
+
   emptyState: {
     textAlign: "center",
     padding: "3rem",
@@ -960,14 +831,17 @@ const styles = {
     border: "1px dashed #cbd5e1",
     borderRadius: 12,
   },
+
   emptyIcon: {
     fontSize: "2rem",
     marginBottom: 8,
   },
+
   emptyTitle: {
     fontWeight: 600,
     color: "#64748b",
   },
+
   emptySub: {
     fontSize: "0.85rem",
     color: "#94a3b8",

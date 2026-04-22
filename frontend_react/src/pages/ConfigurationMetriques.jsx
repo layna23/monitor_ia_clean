@@ -620,11 +620,11 @@ export default function ConfigurationMetriques() {
                     onClick={() => selectedRow && fillForm(selectedRow)}
                     style={styles.secondaryButton}
                   >
-                    ✏️ Modifier
+                     Modifier
                   </button>
 
                   <button onClick={handleDelete} style={styles.dangerButton}>
-                    🗑️ Supprimer
+                     Supprimer
                   </button>
                 </div>
 

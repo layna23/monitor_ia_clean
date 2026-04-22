@@ -313,7 +313,7 @@ export default function Utilisateurs() {
               ID: u.user_id,
               EMAIL: u.email,
               NOM: u.full_name || "—",
-              STATUT: Number(u.is_active || 0) === 1 ? "✅ Actif" : "⛔ Inactif",
+              STATUT: Number(u.is_active || 0) === 1 ? " Actif" : " Inactif",
               "CRÉÉ LE": formatDateTime(u.created_at),
               "DERNIÈRE CONNEXION": formatDateTime(u.last_login_at),
             }))}
@@ -327,7 +327,7 @@ export default function Utilisateurs() {
 
           <div style={styles.twoCols}>
             <SectionCard>
-              <SectionTitle icon="✏️" text="MODIFIER UN UTILISATEUR" />
+              <SectionTitle icon="" text="MODIFIER UN UTILISATEUR" />
 
               <select
                 style={styles.select}
@@ -406,7 +406,7 @@ export default function Utilisateurs() {
             </SectionCard>
 
             <SectionCard>
-              <SectionTitle icon="🗑️" text="SUPPRIMER UN UTILISATEUR" />
+              <SectionTitle icon="" text="SUPPRIMER UN UTILISATEUR" />
 
               <select
                 style={styles.select}
@@ -422,7 +422,7 @@ export default function Utilisateurs() {
 
               {selectedDeleteUser && (
                 <div style={styles.dangerNote}>
-                  ⚠️ Suppression définitive du compte <b>{selectedDeleteUser.email}</b>.
+                   Suppression définitive du compte <b>{selectedDeleteUser.email}</b>.
                 </div>
               )}
 

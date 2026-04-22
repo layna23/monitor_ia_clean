@@ -557,15 +557,15 @@ USER=${form.username}`;
                       if (selectedRow) fillForm(selectedRow);
                     }}
                   >
-                    ✏️ Modifier
+                     Modifier
                   </button>
 
                   <button style={styles.secondaryButton} onClick={handleSoftDelete}>
-                    ⛔ Désactiver
+                     Désactiver
                   </button>
 
                   <button style={styles.dangerButton} onClick={handleHardDelete}>
-                    🗑️ Hard delete
+                     Hard delete
                   </button>
                 </div>
               </>

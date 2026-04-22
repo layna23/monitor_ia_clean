@@ -251,7 +251,7 @@ export default function Roles() {
       )}
 
       <SectionCard>
-        <SectionTitle icon="👥" text="RÔLES CONFIGURÉS" />
+        <SectionTitle icon="" text="RÔLES CONFIGURÉS" />
 
         {loading ? (
           <InfoBox text="Chargement..." />
@@ -278,7 +278,7 @@ export default function Roles() {
 
           <div style={styles.twoCols}>
             <SectionCard>
-              <SectionTitle icon="✏️" text="MODIFIER UN RÔLE" />
+              <SectionTitle icon="" text="MODIFIER UN RÔLE" />
 
               <select
                 style={styles.select}
@@ -326,7 +326,7 @@ export default function Roles() {
             </SectionCard>
 
             <SectionCard>
-              <SectionTitle icon="🗑️" text="SUPPRIMER UN RÔLE" />
+              <SectionTitle icon="" text="SUPPRIMER UN RÔLE" />
 
               <select
                 style={styles.select}

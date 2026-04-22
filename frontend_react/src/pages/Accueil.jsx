@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   ResponsiveContainer,
   LineChart,
@@ -8,9 +7,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  BarChart,
-  Bar,
-  Cell,
 } from "recharts";
 import api from "../api/client";
 
@@ -53,18 +49,6 @@ function formatHistoryLabel(value) {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function normalizeMetricCode(alert) {
-  return String(
-    alert?.metric_code ||
-      alert?.metric?.metric_code ||
-      alert?.metric_name ||
-      alert?.code ||
-      ""
-  )
-    .trim()
-    .toUpperCase();
 }
 
 function normalizeSeverity(value) {
@@ -110,43 +94,6 @@ function getMetricStatusStyle(status) {
   }
 }
 
-function getStatusStyles(status) {
-  switch (normalizeSeverity(status)) {
-    case "CRITICAL":
-      return {
-        dotColor: "#ef4444",
-        label: "Critical",
-        badgeBg: "#fff1f2",
-        badgeColor: "#9f1239",
-        badgeBorder: "#fecdd3",
-      };
-    case "WARNING":
-      return {
-        dotColor: "#f59e0b",
-        label: "Warning",
-        badgeBg: "#fffbeb",
-        badgeColor: "#92400e",
-        badgeBorder: "#fde68a",
-      };
-    case "INFO":
-      return {
-        dotColor: "#3b82f6",
-        label: "Info",
-        badgeBg: "#eff6ff",
-        badgeColor: "#1e40af",
-        badgeBorder: "#bfdbfe",
-      };
-    default:
-      return {
-        dotColor: "#22c55e",
-        label: "OK",
-        badgeBg: "#f0fdf4",
-        badgeColor: "#166534",
-        badgeBorder: "#bbf7d0",
-      };
-  }
-}
-
 function KpiCard({ label, value, sub, accent }) {
   return (
     <div style={{ ...styles.kpiCard, borderTop: `4px solid ${accent}` }}>
@@ -157,10 +104,15 @@ function KpiCard({ label, value, sub, accent }) {
   );
 }
 
-function Card({ title, children }) {
+function Card({ title, subtitle, children }) {
   return (
     <div style={styles.card}>
-      <div style={styles.cardTitle}>{title}</div>
+      <div style={styles.cardHeaderRow}>
+        <div>
+          <div style={styles.cardTitle}>{title}</div>
+          {subtitle ? <div style={styles.cardSubtitle}>{subtitle}</div> : null}
+        </div>
+      </div>
       {children}
     </div>
   );
@@ -237,7 +189,9 @@ function SingleMetricChartCard({ title, metric, chartData }) {
               dataKey="value"
               stroke="#2563eb"
               strokeWidth={2.5}
-              dot={false}
+              dot={{ r: 4, strokeWidth: 2, fill: "#ffffff" }}
+              activeDot={{ r: 6 }}
+              connectNulls
             />
             <Line
               type="monotone"
@@ -245,6 +199,7 @@ function SingleMetricChartCard({ title, metric, chartData }) {
               stroke="#f59e0b"
               strokeWidth={1.5}
               dot={false}
+              connectNulls
             />
             <Line
               type="monotone"
@@ -252,6 +207,7 @@ function SingleMetricChartCard({ title, metric, chartData }) {
               stroke="#ef4444"
               strokeWidth={1.5}
               dot={false}
+              connectNulls
             />
           </LineChart>
         </ResponsiveContainer>
@@ -260,11 +216,19 @@ function SingleMetricChartCard({ title, metric, chartData }) {
   );
 }
 
+function MetricTag({ text, variant = "critical" }) {
+  const style =
+    variant === "warning"
+      ? styles.alertMetricTagWarning
+      : styles.alertMetricTagCritical;
+
+  return <span style={style}>{text}</span>;
+}
+
 export default function Accueil() {
   const [backendOk, setBackendOk] = useState(false);
   const [targetDbs, setTargetDbs] = useState([]);
   const [metricDefs, setMetricDefs] = useState([]);
-  const [alertsData, setAlertsData] = useState([]);
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur] = useState("");
 
@@ -273,22 +237,16 @@ export default function Accueil() {
   const [selectedDbHistory, setSelectedDbHistory] = useState([]);
   const [metricsLoading, setMetricsLoading] = useState(false);
 
-  const [allOverviewByDb, setAllOverviewByDb] = useState({});
-  const [globalLoading, setGlobalLoading] = useState(false);
-
-  const navigate = useNavigate();
-
   useEffect(() => {
     const chargerDonnees = async () => {
       setChargement(true);
       setErreur("");
 
       try {
-        const [hcRes, targetDbsRes, metricDefsRes, alertsRes] = await Promise.all([
+        const [hcRes, targetDbsRes, metricDefsRes] = await Promise.all([
           api.get("/health"),
           api.get("/target-dbs/"),
           api.get("/metric-defs/"),
-          api.get("/alerts/"),
         ]);
 
         const dbs = Array.isArray(targetDbsRes.data) ? targetDbsRes.data : [];
@@ -296,7 +254,6 @@ export default function Accueil() {
         setBackendOk(hcRes?.data?.status === "ok");
         setTargetDbs(dbs);
         setMetricDefs(Array.isArray(metricDefsRes.data) ? metricDefsRes.data : []);
-        setAlertsData(Array.isArray(alertsRes.data) ? alertsRes.data : []);
       } catch (err) {
         console.error(err);
         setErreur("Erreur lors du chargement des données.");
@@ -359,82 +316,29 @@ export default function Accueil() {
     chargerVisualisation();
   }, [selectedDbId]);
 
-  useEffect(() => {
-    if (!oracleBases.length) return;
-
-    const chargerVueGlobale = async () => {
-      setGlobalLoading(true);
-
-      try {
-        const results = await Promise.all(
-          oracleBases.map(async (db) => {
-            try {
-              const overviewRes = await api.get(`/target-dbs/${db.db_id}/overview`);
-              return {
-                dbId: String(db.db_id),
-                overview: overviewRes?.data || null,
-              };
-            } catch (err) {
-              console.error(`Erreur overview DB ${db.db_id}`, err);
-              return {
-                dbId: String(db.db_id),
-                overview: null,
-              };
-            }
-          })
-        );
-
-        const map = {};
-        results.forEach((item) => {
-          map[item.dbId] = item.overview;
-        });
-        setAllOverviewByDb(map);
-      } finally {
-        setGlobalLoading(false);
-      }
-    };
-
-    chargerVueGlobale();
-  }, [oracleBases]);
-
   const activeMetrics = metricDefs.filter((m) => Number(m.is_active || 0) === 1).length;
 
-  const openAlertsByDb = useMemo(() => {
-    const counts = {};
-    alertsData.forEach((a) => {
-      if (normalizeSeverity(a.status) === "OPEN") {
-        const dbId = String(a.db_id || "");
-        counts[dbId] = (counts[dbId] || 0) + 1;
-      }
-    });
-    return counts;
-  }, [alertsData]);
-
-  const criticalAlertsByDb = useMemo(() => {
-    const counts = {};
-    alertsData.forEach((a) => {
-      if (
-        normalizeSeverity(a.status) === "OPEN" &&
-        normalizeSeverity(a.severity) === "CRITICAL"
-      ) {
-        const dbId = String(a.db_id || "");
-        counts[dbId] = (counts[dbId] || 0) + 1;
-      }
-    });
-    return counts;
-  }, [alertsData]);
+  const EXCLUDED_METRICS = useMemo(
+    () => new Set(["DB_STATUS", "DB_INFO", "LOCKED_OBJECTS", "TOP_SQL"]),
+    []
+  );
 
   const selectedLatestMetrics = useMemo(() => {
-    return Array.isArray(selectedDbOverview?.latest_metrics)
+    const metrics = Array.isArray(selectedDbOverview?.latest_metrics)
       ? selectedDbOverview.latest_metrics
       : [];
-  }, [selectedDbOverview]);
+
+    return metrics.filter(
+      (metric) => !EXCLUDED_METRICS.has(String(metric.metric_code || "").toUpperCase())
+    );
+  }, [selectedDbOverview, EXCLUDED_METRICS]);
 
   const historyByMetric = useMemo(() => {
     const grouped = {};
 
     selectedDbHistory.forEach((row) => {
       const code = String(row.metric_code || "").toUpperCase();
+      if (!code || EXCLUDED_METRICS.has(code)) return;
 
       if (!grouped[code]) grouped[code] = [];
 
@@ -447,139 +351,42 @@ export default function Accueil() {
     });
 
     return grouped;
-  }, [selectedDbHistory]);
+  }, [selectedDbHistory, EXCLUDED_METRICS]);
 
   const metricCharts = useMemo(() => {
-    const excludedCodes = ["DB_INFO"];
-
     return selectedLatestMetrics
       .filter((metric) => {
         const code = String(metric.metric_code || "").toUpperCase();
-        return !excludedCodes.includes(code) && (historyByMetric[code]?.length || 0) > 0;
+        const chartData = historyByMetric[code] || [];
+        if (!chartData.length) return false;
+
+        return chartData.some(
+          (row) =>
+            row.value !== null &&
+            row.value !== undefined &&
+            !Number.isNaN(Number(row.value))
+        );
       })
       .sort((a, b) =>
         String(a.metric_code || "").localeCompare(String(b.metric_code || ""))
       );
   }, [selectedLatestMetrics, historyByMetric]);
 
-  const getDbStatus = (dbId) => {
-    const dbIdStr = String(dbId);
-    const critical = criticalAlertsByDb[dbIdStr] || 0;
-    const open = openAlertsByDb[dbIdStr] || 0;
+  const selectedDb = useMemo(() => {
+    return oracleBases.find((db) => String(db.db_id) === String(selectedDbId)) || null;
+  }, [oracleBases, selectedDbId]);
 
-    if (critical > 0) return "CRITICAL";
-    if (open > 0) return "WARNING";
+  const selectedDbCriticalMetrics = useMemo(() => {
+    return selectedLatestMetrics
+      .filter((metric) => getMetricSeverity(metric) === "CRITICAL")
+      .map((metric) => String(metric.metric_code || "").toUpperCase());
+  }, [selectedLatestMetrics]);
 
-    const latestMetrics = Array.isArray(allOverviewByDb[dbIdStr]?.latest_metrics)
-      ? allOverviewByDb[dbIdStr].latest_metrics
-      : [];
-
-    const severities = latestMetrics.map((m) => getMetricSeverity(m));
-
-    if (severities.includes("CRITICAL")) return "CRITICAL";
-    if (severities.includes("WARNING")) return "WARNING";
-    if (severities.includes("OK")) return "OK";
-    if (severities.includes("INFO")) return "INFO";
-
-    return "OK";
-  };
-
-  const globalAlertsByDb = useMemo(() => {
-    const EXCLUDED_GLOBAL_ALERT_METRICS = new Set([
-      "DB_INFO",
-    ]);
-
-    return oracleBases.map((db) => {
-      const dbId = String(db.db_id);
-
-      const dbAlerts = alertsData.filter(
-        (a) => normalizeSeverity(a.status) === "OPEN" && String(a.db_id || "") === dbId
-      );
-
-      const criticalSet = new Set();
-      const warningSet = new Set();
-
-      dbAlerts.forEach((alert) => {
-        const severity = normalizeSeverity(alert.severity);
-        const metricCode = normalizeMetricCode(alert);
-
-        if (!metricCode || EXCLUDED_GLOBAL_ALERT_METRICS.has(metricCode)) return;
-
-        if (severity === "CRITICAL") {
-          criticalSet.add(metricCode);
-          warningSet.delete(metricCode);
-        } else if (severity === "WARNING") {
-          if (!criticalSet.has(metricCode)) {
-            warningSet.add(metricCode);
-          }
-        }
-      });
-
-      const hasUsableAlerts = criticalSet.size > 0 || warningSet.size > 0;
-
-      if (hasUsableAlerts) {
-        return {
-          db_id: db.db_id,
-          db_name: db.db_name || "—",
-          criticalMetrics: Array.from(criticalSet),
-          warningMetrics: Array.from(warningSet),
-          criticalCount: criticalSet.size,
-          warningCount: warningSet.size,
-        };
-      }
-
-      const latestMetrics = Array.isArray(allOverviewByDb[dbId]?.latest_metrics)
-        ? allOverviewByDb[dbId].latest_metrics
-        : [];
-
-      const fallbackCritical = new Set();
-      const fallbackWarning = new Set();
-
-      latestMetrics.forEach((metric) => {
-        const code = String(metric.metric_code || "").toUpperCase();
-
-        if (!code || EXCLUDED_GLOBAL_ALERT_METRICS.has(code)) return;
-
-        const severity = getMetricSeverity(metric);
-
-        if (severity === "CRITICAL") {
-          fallbackCritical.add(code);
-          fallbackWarning.delete(code);
-        } else if (severity === "WARNING") {
-          if (!fallbackCritical.has(code)) {
-            fallbackWarning.add(code);
-          }
-        }
-      });
-
-      return {
-        db_id: db.db_id,
-        db_name: db.db_name || "—",
-        criticalMetrics: Array.from(fallbackCritical),
-        warningMetrics: Array.from(fallbackWarning),
-        criticalCount: fallbackCritical.size,
-        warningCount: fallbackWarning.size,
-      };
-    });
-  }, [oracleBases, alertsData, allOverviewByDb]);
-
-  const alertChartData = useMemo(() => {
-    return globalAlertsByDb.map((item) => ({
-      name: item.db_name,
-      critical: item.criticalCount,
-      warning: item.warningCount,
-      criticalMetrics: item.criticalMetrics.join(", "),
-      warningMetrics: item.warningMetrics.join(", "),
-    }));
-  }, [globalAlertsByDb]);
-
-  const totalCritical = useMemo(() => {
-    return globalAlertsByDb.reduce((sum, item) => sum + item.criticalCount, 0);
-  }, [globalAlertsByDb]);
-
-  const totalWarning = useMemo(() => {
-    return globalAlertsByDb.reduce((sum, item) => sum + item.warningCount, 0);
-  }, [globalAlertsByDb]);
+  const selectedDbWarningMetrics = useMemo(() => {
+    return selectedLatestMetrics
+      .filter((metric) => getMetricSeverity(metric) === "WARNING")
+      .map((metric) => String(metric.metric_code || "").toUpperCase());
+  }, [selectedLatestMetrics]);
 
   if (chargement) {
     return (
@@ -619,286 +426,227 @@ export default function Accueil() {
         />
       </div>
 
-      <Card title="ALERTES GLOBALES PAR BASE">
-        {globalLoading ? (
-          <div style={styles.loadingInline}>Chargement des alertes globales...</div>
-        ) : oracleBases.length === 0 ? (
-          <EmptyBox message="Aucune base Oracle active trouvée." />
-        ) : (
-          <>
-            <div style={styles.globalTotalsRow}>
-              <div style={styles.totalBadgeCritical}>
-                Total métriques critiques : {totalCritical}
-              </div>
-              <div style={styles.totalBadgeWarning}>
-                Total métriques warning : {totalWarning}
-              </div>
-            </div>
-
-            <div style={styles.globalChartWrap}>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={alertChartData} barCategoryGap={40}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#dbe3ef" />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fontSize: 12, fill: "#64748b" }}
-                    stroke="#94a3b8"
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    tick={{ fontSize: 11, fill: "#64748b" }}
-                    stroke="#94a3b8"
-                    width={36}
-                  />
-                  <Tooltip
-                    content={({ active, payload, label }) => {
-                      if (!active || !payload || !payload.length) return null;
-
-                      const row = payload[0]?.payload || {};
-                      return (
-                        <div style={styles.customTooltip}>
-                          <div style={styles.customTooltipTitle}>{label}</div>
-
-                          <div style={styles.tooltipRow}>
-                            <span style={styles.tooltipDotCritical} />
-                            Critiques : <strong>{row.critical ?? 0}</strong>
-                          </div>
-                          <div style={styles.tooltipDetails}>
-                            {row.criticalMetrics || "Aucune métrique critique"}
-                          </div>
-
-                          <div style={styles.tooltipRow}>
-                            <span style={styles.tooltipDotWarning} />
-                            Warnings : <strong>{row.warning ?? 0}</strong>
-                          </div>
-                          <div style={styles.tooltipDetails}>
-                            {row.warningMetrics || "Aucune métrique warning"}
-                          </div>
-                        </div>
-                      );
-                    }}
-                  />
-
-                  <Bar
-                    dataKey="critical"
-                    name="Critical"
-                    radius={[8, 8, 0, 0]}
-                    maxBarSize={80}
-                  >
-                    {alertChartData.map((entry, index) => (
-                      <Cell key={`critical-${entry.name}-${index}`} fill="#ef4444" />
-                    ))}
-                  </Bar>
-
-                  <Bar
-                    dataKey="warning"
-                    name="Warning"
-                    radius={[8, 8, 0, 0]}
-                    maxBarSize={80}
-                  >
-                    {alertChartData.map((entry, index) => (
-                      <Cell key={`warning-${entry.name}-${index}`} fill="#f59e0b" />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div style={styles.compactAlertsGrid}>
-              {globalAlertsByDb.map((item) => (
-                <div key={item.db_id} style={styles.compactAlertCard}>
-                  <div style={styles.compactAlertTitle}>{item.db_name}</div>
-
-                  <div style={styles.compactSectionTitleCritical}>Critiques</div>
-                  <div style={styles.compactTagsWrap}>
-                    {item.criticalMetrics.length === 0 ? (
-                      <span style={styles.compactEmpty}>Aucune</span>
-                    ) : (
-                      item.criticalMetrics.map((metric) => (
-                        <span
-                          key={`${item.db_id}-critical-${metric}`}
-                          style={styles.alertMetricTagCritical}
-                        >
-                          {metric}
-                        </span>
-                      ))
-                    )}
-                  </div>
-
-                  <div style={styles.compactSectionTitleWarning}>Warnings</div>
-                  <div style={styles.compactTagsWrap}>
-                    {item.warningMetrics.length === 0 ? (
-                      <span style={styles.compactEmpty}>Aucune</span>
-                    ) : (
-                      item.warningMetrics.map((metric) => (
-                        <span
-                          key={`${item.db_id}-warning-${metric}`}
-                          style={styles.alertMetricTagWarning}
-                        >
-                          {metric}
-                        </span>
-                      ))
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </Card>
-
       <div style={styles.stackLayout}>
-        <Card title="BASES SURVEILLÉES">
+        <Card title="Choisir une base">
           {oracleBases.length === 0 ? (
             <EmptyBox message="Aucune base Oracle active trouvée." />
           ) : (
-            <div style={styles.dbCardGrid}>
-              {oracleBases.map((db) => {
-                const status = getDbStatus(db.db_id);
-                const statusStyles = getStatusStyles(status);
-                const alertsCount = openAlertsByDb[String(db.db_id)] || 0;
-                const isSelected = String(selectedDbId) === String(db.db_id);
-
-                return (
-                  <div
-                    key={db.db_id}
-                    style={{
-                      ...styles.dbCard,
-                      ...(isSelected ? styles.dbCardSelected : {}),
-                    }}
-                    onClick={() => setSelectedDbId(db.db_id)}
-                    onDoubleClick={() => navigate(`/bases/${db.db_id}`)}
-                  >
-                    <div style={styles.dbCardTop}>
-                      <div style={styles.dbMain}>
-                        <div style={styles.dbNameRow}>
-                          <span
-                            style={{
-                              ...styles.dot,
-                              background: statusStyles.dotColor,
-                              boxShadow: `0 0 0 4px ${statusStyles.dotColor}22`,
-                            }}
-                          />
-                          <div style={styles.dbName}>{db.db_name || "—"}</div>
-                        </div>
-
-                        <div style={styles.dbHost}>{db.host || "—"}</div>
-                      </div>
-                    </div>
-
-                    <div style={styles.dbMetaGrid}>
-                      <InfoMini label="Type" value="Oracle" />
-                      <InfoMini label="Port" value={String(db.port || "—")} />
-                      <InfoMini
-                        label="Statut"
-                        value={
-                          <span
-                            style={{
-                              ...styles.statusBadge,
-                              background: statusStyles.badgeBg,
-                              borderColor: statusStyles.badgeBorder,
-                              color: statusStyles.badgeColor,
-                            }}
-                          >
-                            {statusStyles.label}
-                          </span>
-                        }
-                      />
-                      <InfoMini label="Alertes ouvertes" value={String(alertsCount)} />
-                      <InfoMini
-                        label="Dernière collecte"
-                        value={
-                          db.last_collect_at
-                            ? new Date(db.last_collect_at).toLocaleString("fr-FR")
-                            : "Non disponible"
-                        }
-                        fullWidth
-                      />
-                    </div>
-
-                    <div style={styles.dbFooter}>
-                      <span style={styles.dbFooterText}>
-                        1 clic = visualiser · 2 clics = ouvrir le détail
-                      </span>
-                      <span style={styles.dbArrow}>›</span>
-                    </div>
-                  </div>
-                );
-              })}
+            <div style={styles.dbSelectorBlock}>
+              <div style={styles.selectorLabel}>Base sélectionnée</div>
+              <select
+                style={styles.dbSelect}
+                value={selectedDbId || ""}
+                onChange={(e) => setSelectedDbId(Number(e.target.value))}
+              >
+                {oracleBases.map((db) => (
+                  <option key={db.db_id} value={db.db_id}>
+                    {`${db.db_name || "—"} | ${db.host || "—"}:${db.port || "—"}`}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
         </Card>
 
-        <Card title="DÉTAIL DE LA BASE SÉLECTIONNÉE">
+        <Card
+          title="Info de la base"
+          subtitle={
+            selectedDb
+              ? `Informations générales de ${selectedDb.db_name || "la base sélectionnée"}`
+              : ""
+          }
+        >
+          {!selectedDbId ? (
+            <EmptyBox message="Sélectionnez une base." />
+          ) : metricsLoading ? (
+            <div style={styles.loadingInline}>Chargement des informations de la base...</div>
+          ) : (
+            <div style={styles.selectedDbInfoGridLarge}>
+              <InfoMini
+                label="Nom de la base"
+                value={selectedDbOverview?.db_name || selectedDb?.db_name || "—"}
+              />
+              <InfoMini
+                label="Host"
+                value={selectedDbOverview?.host || selectedDb?.host || "localhost"}
+              />
+              <InfoMini
+                label="Port"
+                value={String(selectedDbOverview?.port || selectedDb?.port || "—")}
+              />
+              <InfoMini
+                label="Service"
+                value={selectedDbOverview?.service_name || "—"}
+              />
+              <InfoMini
+                label="SID"
+                value={selectedDbOverview?.sid || "—"}
+              />
+              <InfoMini
+                label="Dernière collecte"
+                value={
+                  selectedDb?.last_collect_at
+                    ? new Date(selectedDb.last_collect_at).toLocaleString("fr-FR")
+                    : "Non disponible"
+                }
+              />
+              <InfoMini label="Type" value="Oracle" />
+              <InfoMini
+                label="Base affichée"
+                value={selectedDbOverview?.db_name || selectedDb?.db_name || "—"}
+              />
+            </div>
+          )}
+        </Card>
+
+        <Card
+          title="Métriques critiques et warning"
+          subtitle={
+            selectedDb
+              ? `État actuel des métriques sensibles de ${selectedDb.db_name || "la base"}`
+              : ""
+          }
+        >
+          {!selectedDbId ? (
+            <EmptyBox message="Sélectionnez une base." />
+          ) : metricsLoading ? (
+            <div style={styles.loadingInline}>Chargement des alertes de la base...</div>
+          ) : (
+            <div style={styles.alertsSelectedGrid}>
+              <div style={styles.alertBox}>
+                <div style={styles.alertBoxTitleCritical}>Critiques</div>
+                <div style={styles.alertTagsWrap}>
+                  {selectedDbCriticalMetrics.length === 0 ? (
+                    <span style={styles.compactEmpty}>Aucune</span>
+                  ) : (
+                    selectedDbCriticalMetrics.map((metric) => (
+                      <MetricTag
+                        key={`critical-${metric}`}
+                        text={metric}
+                        variant="critical"
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div style={styles.alertBox}>
+                <div style={styles.alertBoxTitleWarning}>Warnings</div>
+                <div style={styles.alertTagsWrap}>
+                  {selectedDbWarningMetrics.length === 0 ? (
+                    <span style={styles.compactEmpty}>Aucune</span>
+                  ) : (
+                    selectedDbWarningMetrics.map((metric) => (
+                      <MetricTag
+                        key={`warning-${metric}`}
+                        text={metric}
+                        variant="warning"
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </Card>
+
+        <Card
+          title="Métriques actuelles"
+          subtitle={
+            selectedDb
+              ? `Toutes les métriques collectées de ${selectedDb.db_name || "la base"}`
+              : ""
+          }
+        >
           {!selectedDbId ? (
             <EmptyBox message="Sélectionnez une base." />
           ) : metricsLoading ? (
             <div style={styles.loadingInline}>Chargement des métriques...</div>
+          ) : selectedLatestMetrics.length === 0 ? (
+            <EmptyBox message="Aucune métrique disponible pour cette base." />
           ) : (
-            <>
-              <div style={styles.selectedDbBlock}>
-                <div style={styles.selectedDbLabel}>Nom de la base</div>
-                <div style={styles.selectedDbMainName}>
-                  {selectedDbOverview?.db_name || "Base sélectionnée"}
-                </div>
-                <div style={styles.selectedDbSubline}>
-                  {selectedDbOverview?.host || "localhost"}
-                  {selectedDbOverview?.port ? ` : ${selectedDbOverview.port}` : ""}
-                  {selectedDbOverview?.service_name
-                    ? ` · ${selectedDbOverview.service_name}`
-                    : ""}
-                </div>
-              </div>
+            <div style={styles.metricsTableWrap}>
+              <table style={styles.metricsTable}>
+                <thead>
+                  <tr>
+                    <th style={styles.metricsTh}>METRIC</th>
+                    <th style={styles.metricsTh}>VALUE</th>
+                    <th style={styles.metricsTh}>SEVERITY</th>
+                    <th style={styles.metricsTh}>WARNING</th>
+                    <th style={styles.metricsTh}>CRITIQUE</th>
+                    <th style={styles.metricsTh}>FRÉQUENCE</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedLatestMetrics.map((metric, index) => {
+                    const sev = getMetricSeverity(metric);
+                    const sevStyle = getMetricStatusStyle(sev);
 
-              <div style={styles.selectedDbInfoGrid}>
-                <InfoMini label="Type" value="Oracle" />
-                <InfoMini
-                  label="Host"
-                  value={selectedDbOverview?.host || "localhost"}
-                />
-                <InfoMini
-                  label="Port"
-                  value={String(selectedDbOverview?.port || "—")}
-                />
-                <InfoMini
-                  label="Service"
-                  value={selectedDbOverview?.service_name || "—"}
-                />
-              </div>
-
-              <div style={styles.selectedDbHeader}>
-                <div style={styles.selectedDbTitle}>
-                  Historique des métriques de{" "}
-                  <span style={styles.selectedDbName}>
-                    {selectedDbOverview?.db_name || "—"}
-                  </span>
-                </div>
-                <button
-                  style={styles.openDetailBtn}
-                  onClick={() => navigate(`/bases/${selectedDbId}`)}
-                >
-                  Ouvrir le détail
-                </button>
-              </div>
-
-              {metricCharts.length === 0 ? (
-                <EmptyBox message="Aucun graphique métrique disponible pour cette base." />
-              ) : (
-                <div style={styles.chartGrid}>
-                  {metricCharts.map((metric) => {
-                    const code = String(metric.metric_code || "").toUpperCase();
                     return (
-                      <SingleMetricChartCard
-                        key={metric.metric_id || code}
-                        title={metric.metric_code || "Métrique"}
-                        metric={metric}
-                        chartData={historyByMetric[code] || []}
-                      />
+                      <tr
+                        key={`${metric.metric_id || metric.metric_code}-${index}`}
+                        style={index % 2 === 0 ? styles.rowEven : styles.rowOdd}
+                      >
+                        <td style={styles.metricsTdStrong}>
+                          {metric.metric_code || "—"}
+                        </td>
+                        <td style={styles.metricsTd}>
+                          {metric.value_text ?? metric.value_number ?? "—"}
+                        </td>
+                        <td style={styles.metricsTd}>
+                          <span
+                            style={{
+                              ...styles.statusBadge,
+                              background: sevStyle.bg,
+                              color: sevStyle.color,
+                              borderColor: sevStyle.border,
+                            }}
+                          >
+                            {sev}
+                          </span>
+                        </td>
+                        <td style={styles.metricsTd}>
+                          {metric.warn_threshold ?? "—"}
+                        </td>
+                        <td style={styles.metricsTd}>
+                          {metric.crit_threshold ?? "—"}
+                        </td>
+                        <td style={styles.metricsTd}>
+                          {metric.frequency_sec ? `${metric.frequency_sec}s` : "—"}
+                        </td>
+                      </tr>
                     );
                   })}
-                </div>
-              )}
-            </>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+
+        <Card
+          title="Graphiques des métriques"
+          subtitle="Historique des métriques numériques disponibles"
+        >
+          {!selectedDbId ? (
+            <EmptyBox message="Sélectionnez une base." />
+          ) : metricsLoading ? (
+            <div style={styles.loadingInline}>Chargement des graphiques...</div>
+          ) : metricCharts.length === 0 ? (
+            <EmptyBox message="Aucun graphique métrique disponible pour cette base." />
+          ) : (
+            <div style={styles.chartGrid}>
+              {metricCharts.map((metric) => {
+                const code = String(metric.metric_code || "").toUpperCase();
+                return (
+                  <SingleMetricChartCard
+                    key={metric.metric_id || code}
+                    title={metric.metric_code || "Métrique"}
+                    metric={metric}
+                    chartData={historyByMetric[code] || []}
+                  />
+                );
+              })}
+            </div>
           )}
         </Card>
       </div>
@@ -1003,11 +751,24 @@ const styles = {
     boxShadow: "0 8px 24px rgba(15,23,42,0.05)",
   },
 
+  cardHeaderRow: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 14,
+  },
+
   cardTitle: {
     fontSize: 18,
     fontWeight: 800,
-    marginBottom: 14,
     color: "#334155",
+  },
+
+  cardSubtitle: {
+    marginTop: 8,
+    fontSize: 14,
+    color: "#94a3b8",
   },
 
   emptyBox: {
@@ -1019,210 +780,26 @@ const styles = {
     color: "#94a3b8",
   },
 
-  globalTotalsRow: {
-    display: "flex",
-    gap: 12,
-    flexWrap: "wrap",
-    marginBottom: 14,
+  dbSelectorBlock: {
+    maxWidth: 520,
   },
 
-  totalBadgeCritical: {
-    background: "#fff1f2",
-    color: "#9f1239",
-    border: "1px solid #fecdd3",
-    borderRadius: 999,
-    padding: "8px 14px",
-    fontSize: 13,
-    fontWeight: 700,
-  },
-
-  totalBadgeWarning: {
-    background: "#fffbeb",
-    color: "#92400e",
-    border: "1px solid #fde68a",
-    borderRadius: 999,
-    padding: "8px 14px",
-    fontSize: 13,
-    fontWeight: 700,
-  },
-
-  globalChartWrap: {
-    width: "100%",
-    height: 220,
-    marginBottom: 14,
-  },
-
-  customTooltip: {
-    background: "#ffffff",
-    border: "1px solid #e2e8f0",
-    borderRadius: 12,
-    padding: 12,
-    boxShadow: "0 8px 24px rgba(15,23,42,0.08)",
-    maxWidth: 320,
-  },
-
-  customTooltipTitle: {
-    fontSize: 14,
-    fontWeight: 800,
-    color: "#0f172a",
-    marginBottom: 8,
-  },
-
-  tooltipRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    fontSize: 13,
-    color: "#334155",
-    marginTop: 6,
-  },
-
-  tooltipDotCritical: {
-    width: 10,
-    height: 10,
-    borderRadius: "50%",
-    background: "#ef4444",
-    display: "inline-block",
-  },
-
-  tooltipDotWarning: {
-    width: 10,
-    height: 10,
-    borderRadius: "50%",
-    background: "#f59e0b",
-    display: "inline-block",
-  },
-
-  tooltipDetails: {
-    marginTop: 4,
-    fontSize: 12,
-    color: "#64748b",
-    lineHeight: 1.5,
-  },
-
-  compactAlertsGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-    gap: 14,
-  },
-
-  compactAlertCard: {
-    background: "#f8fafc",
-    border: "1px solid #e2e8f0",
-    borderRadius: 14,
-    padding: 14,
-  },
-
-  compactAlertTitle: {
-    fontSize: 18,
-    fontWeight: 800,
-    color: "#0f172a",
-    marginBottom: 12,
-  },
-
-  compactSectionTitleCritical: {
-    fontSize: 13,
-    fontWeight: 800,
-    color: "#b91c1c",
-    marginBottom: 8,
-  },
-
-  compactSectionTitleWarning: {
-    fontSize: 13,
-    fontWeight: 800,
-    color: "#b45309",
-    marginTop: 12,
-    marginBottom: 8,
-  },
-
-  compactTagsWrap: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-
-  compactEmpty: {
-    fontSize: 12,
-    color: "#94a3b8",
-  },
-
-  alertMetricTagCritical: {
-    background: "#fff1f2",
-    color: "#9f1239",
-    border: "1px solid #fecdd3",
-    borderRadius: 999,
-    padding: "6px 10px",
-    fontSize: 12,
-    fontWeight: 700,
-  },
-
-  alertMetricTagWarning: {
-    background: "#fffbeb",
-    color: "#92400e",
-    border: "1px solid #fde68a",
-    borderRadius: 999,
-    padding: "6px 10px",
-    fontSize: 12,
-    fontWeight: 700,
-  },
-
-  dbCardGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-    gap: 16,
-  },
-
-  dbCard: {
-    background: "#ffffff",
-    border: "1px solid #e2e8f0",
-    borderRadius: 18,
-    padding: 18,
-    cursor: "pointer",
-    transition: "all 0.18s ease",
-    boxShadow: "0 8px 24px rgba(15,23,42,0.05)",
-  },
-
-  dbCardSelected: {
-    border: "1px solid #bfdbfe",
-    boxShadow: "0 12px 28px rgba(37,99,235,0.10)",
-    background: "#f8fbff",
-  },
-
-  dbCardTop: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 16,
-    marginBottom: 16,
-  },
-
-  dbMain: {
-    minWidth: 0,
-  },
-
-  dbNameRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 8,
-  },
-
-  dbName: {
-    fontSize: 18,
-    fontWeight: 800,
-    color: "#0f172a",
-    wordBreak: "break-word",
-  },
-
-  dbHost: {
+  selectorLabel: {
     fontSize: 15,
-    color: "#64748b",
-    paddingLeft: 20,
+    fontWeight: 700,
+    color: "#334155",
+    marginBottom: 10,
   },
 
-  dbMetaGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-    gap: 10,
+  dbSelect: {
+    width: "100%",
+    padding: "14px 16px",
+    borderRadius: 16,
+    border: "1px solid #cbd5e1",
+    background: "#ffffff",
+    color: "#0f172a",
+    fontSize: 16,
+    outline: "none",
   },
 
   infoMini: {
@@ -1248,37 +825,6 @@ const styles = {
     wordBreak: "break-word",
   },
 
-  dbFooter: {
-    marginTop: 14,
-    paddingTop: 12,
-    borderTop: "1px solid #f1f5f9",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-
-  dbFooterText: {
-    fontSize: 12,
-    color: "#64748b",
-    fontWeight: 600,
-  },
-
-  dbArrow: {
-    fontSize: 24,
-    fontWeight: 700,
-    color: "#94a3b8",
-    lineHeight: 1,
-  },
-
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: "50%",
-    display: "inline-block",
-    flexShrink: 0,
-  },
-
   statusBadge: {
     padding: "4px 10px",
     borderRadius: 999,
@@ -1289,68 +835,119 @@ const styles = {
     whiteSpace: "nowrap",
   },
 
-  selectedDbBlock: {
-    background: "#f8fbff",
-    border: "1px solid #dbeafe",
-    borderRadius: 16,
-    padding: "18px 20px",
-    marginBottom: 16,
-  },
-
-  selectedDbLabel: {
-    fontSize: 11,
-    fontWeight: 800,
-    letterSpacing: "0.08em",
-    color: "#94a3b8",
-    textTransform: "uppercase",
-    marginBottom: 8,
-  },
-
-  selectedDbMainName: {
-    fontSize: 28,
-    fontWeight: 800,
-    color: "#0f172a",
-    marginBottom: 6,
-  },
-
-  selectedDbSubline: {
-    fontSize: 15,
-    color: "#64748b",
-  },
-
-  selectedDbInfoGrid: {
+  selectedDbInfoGridLarge: {
     display: "grid",
-    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-    gap: 10,
-    marginBottom: 18,
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: 14,
   },
 
-  selectedDbHeader: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
+  alertsSelectedGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
     gap: 16,
-    marginBottom: 16,
   },
 
-  selectedDbTitle: {
-    fontSize: 15,
+  alertBox: {
+    background: "#f8fafc",
+    border: "1px solid #e2e8f0",
+    borderRadius: 14,
+    padding: 16,
+  },
+
+  alertBoxTitleCritical: {
+    fontSize: 16,
+    fontWeight: 800,
+    color: "#b91c1c",
+    marginBottom: 12,
+  },
+
+  alertBoxTitleWarning: {
+    fontSize: 16,
+    fontWeight: 800,
+    color: "#b45309",
+    marginBottom: 12,
+  },
+
+  alertTagsWrap: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+
+  compactEmpty: {
+    fontSize: 13,
+    color: "#94a3b8",
+  },
+
+  alertMetricTagCritical: {
+    background: "#fff1f2",
+    color: "#9f1239",
+    border: "1px solid #fecdd3",
+    borderRadius: 999,
+    padding: "6px 10px",
+    fontSize: 12,
     fontWeight: 700,
+  },
+
+  alertMetricTagWarning: {
+    background: "#fffbeb",
+    color: "#92400e",
+    border: "1px solid #fde68a",
+    borderRadius: 999,
+    padding: "6px 10px",
+    fontSize: 12,
+    fontWeight: 700,
+  },
+
+  metricsTableWrap: {
+    overflowX: "auto",
+    border: "1px solid #e2e8f0",
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+
+  metricsTable: {
+    width: "100%",
+    borderCollapse: "collapse",
+    background: "#ffffff",
+  },
+
+  metricsTh: {
+    background: "#f8fafc",
+    color: "#64748b",
+    fontSize: 13,
+    fontWeight: 800,
+    letterSpacing: "0.05em",
+    textTransform: "uppercase",
+    padding: "16px 18px",
+    textAlign: "left",
+    borderBottom: "1px solid #e2e8f0",
+    whiteSpace: "nowrap",
+  },
+
+  metricsTd: {
+    padding: "16px 18px",
+    borderBottom: "1px solid #eef2f7",
+    fontSize: 14,
     color: "#334155",
+    verticalAlign: "middle",
   },
 
-  selectedDbName: {
+  metricsTdStrong: {
+    padding: "16px 18px",
+    borderBottom: "1px solid #eef2f7",
+    fontSize: 14,
     color: "#0f172a",
+    fontWeight: 800,
+    verticalAlign: "middle",
   },
 
-  openDetailBtn: {
-    background: "#2563eb",
-    color: "#ffffff",
-    border: "none",
-    borderRadius: 10,
-    padding: "10px 14px",
-    cursor: "pointer",
-    fontWeight: 700,
+  rowEven: {
+    background: "#ffffff",
+  },
+
+  rowOdd: {
+    background: "#fcfdff",
   },
 
   loadingInline: {

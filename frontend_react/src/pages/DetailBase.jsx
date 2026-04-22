@@ -452,7 +452,7 @@ export default function DetailBase() {
       </div>
 
       <CollapsibleSection
-        title="Résumé de la base"
+        title="Info de la base"
         subtitle={`Informations générales de ${overview.db_name || "la base"}`}
         isOpen={openSections.summary}
         onToggle={() => toggleSection("summary")}
