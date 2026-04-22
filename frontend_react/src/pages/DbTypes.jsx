@@ -155,7 +155,11 @@ export default function DbTypes() {
     try {
       await apiDelete(`/db-types/${deleteItem.db_type_id}`);
       setMessage({ type: "success", text: "Type BD supprimé ✅" });
-      if (editId === deleteItem.db_type_id) resetForm();
+
+      if (editId === deleteItem.db_type_id) {
+        resetForm();
+      }
+
       setDeleteItem(null);
       await loadDbTypes();
     } catch {
@@ -165,6 +169,11 @@ export default function DbTypes() {
 
   const filteredData = useMemo(() => {
     let result = Array.isArray(data) ? data : [];
+
+    // Cacher les éléments supprimés logiquement / inactifs
+    result = result.filter(
+      (x) => String(x.status || "").toUpperCase() !== "INACTIVE"
+    );
 
     if (!search.trim()) return result;
 
@@ -203,12 +212,12 @@ export default function DbTypes() {
         />
 
         <button style={styles.secondaryButton} onClick={loadDbTypes}>
-          🔄 Rafraîchir
+           Rafraîchir
         </button>
       </div>
 
       <SectionCard>
-        <SectionTitle text={editId ? "✏️ MODIFIER UN TYPE BD" : "🗂️ AJOUTER UN TYPE BD"} />
+        <SectionTitle text={editId ? " MODIFIER UN TYPE BD" : " AJOUTER UN TYPE BD"} />
         <div style={styles.helperText}>
           Le code doit être unique. Utilise cette section pour ajouter ou modifier un SGBD.
         </div>
@@ -286,7 +295,7 @@ export default function DbTypes() {
 
         <div style={styles.buttonRow}>
           <button style={styles.primaryButton} onClick={handleSave}>
-            {editId ? "💾 Enregistrer" : "➕ Créer"}
+            {editId ? " Enregistrer" : " Créer"}
           </button>
 
           <button style={styles.secondaryButton} onClick={resetForm}>
@@ -301,7 +310,7 @@ export default function DbTypes() {
                 if (current) setDeleteItem(current);
               }}
             >
-              🗑️ Supprimer
+               Supprimer
             </button>
           ) : null}
         </div>
@@ -310,13 +319,13 @@ export default function DbTypes() {
       <div style={{ height: 20 }} />
 
       <SectionCard>
-        <SectionTitle text="📋 TABLE DB_TYPES" />
+        <SectionTitle text=" TABLE DB_TYPES" />
 
         {loading ? (
           <InfoBox text="Chargement..." />
         ) : !filteredData.length ? (
           <div style={styles.emptyState}>
-            <div style={styles.emptyIcon}>🗂️</div>
+            <div style={styles.emptyIcon}></div>
             <div style={styles.emptyTitle}>Aucun type BD trouvé</div>
             <div style={styles.emptySub}>Vérifie la recherche ou ajoute un nouveau type.</div>
           </div>
