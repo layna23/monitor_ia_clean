@@ -22,16 +22,23 @@ export default function DbTypes() {
   const [form, setForm] = useState(emptyForm);
   const [editId, setEditId] = useState(null);
 
-  async function apiGet(endpoint, defaultValue = null) {
+  async function parseJsonSafe(res) {
     try {
-      const res = await fetch(`${API_BASE}${endpoint}`);
-      if (!res.ok) throw new Error("GET error");
-      const result = await res.json();
-      return result ?? defaultValue;
-    } catch (e) {
-      console.error(e);
-      return defaultValue;
+      return await res.json();
+    } catch {
+      return null;
     }
+  }
+
+  async function apiGet(endpoint, defaultValue = null) {
+    const res = await fetch(`${API_BASE}${endpoint}`);
+    const result = await parseJsonSafe(res);
+
+    if (!res.ok) {
+      throw new Error(result?.detail || "Erreur GET");
+    }
+
+    return result ?? defaultValue;
   }
 
   async function apiPost(endpoint, payload) {
@@ -40,8 +47,14 @@ export default function DbTypes() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error("POST error");
-    return res.json();
+
+    const result = await parseJsonSafe(res);
+
+    if (!res.ok) {
+      throw new Error(result?.detail || "Erreur POST");
+    }
+
+    return result;
   }
 
   async function apiPut(endpoint, payload) {
@@ -50,25 +63,45 @@ export default function DbTypes() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error("PUT error");
-    return res.json();
+
+    const result = await parseJsonSafe(res);
+
+    if (!res.ok) {
+      throw new Error(result?.detail || "Erreur PUT");
+    }
+
+    return result;
   }
 
   async function apiDelete(endpoint) {
     const res = await fetch(`${API_BASE}${endpoint}`, {
       method: "DELETE",
     });
-    if (!res.ok) throw new Error("DELETE error");
-    return true;
+
+    const result = await parseJsonSafe(res);
+
+    if (!res.ok) {
+      throw new Error(result?.detail || "Erreur DELETE");
+    }
+
+    return result ?? true;
   }
 
-  async function loadDbTypes() {
+  async function loadDbTypes(showRefreshMessage = false) {
     try {
       setLoading(true);
       const result = await apiGet("/db-types/", []);
       setData(Array.isArray(result) ? result : []);
-    } catch {
-      setMessage({ type: "error", text: "Erreur lors du chargement des types BD." });
+
+      if (showRefreshMessage) {
+        setMessage({ type: "success", text: "Liste rafraîchie ✅" });
+      }
+    } catch (e) {
+      setMessage({
+        type: "error",
+        text: e.message || "Erreur lors du chargement des types BD.",
+      });
+      setData([]);
     } finally {
       setLoading(false);
     }
@@ -82,7 +115,7 @@ export default function DbTypes() {
     if (!message.text) return;
     const timer = setTimeout(() => {
       setMessage({ type: "", text: "" });
-    }, 3000);
+    }, 3500);
     return () => clearTimeout(timer);
   }, [message]);
 
@@ -93,9 +126,17 @@ export default function DbTypes() {
 
   function badgeStatus(status) {
     const s = String(status || "").toUpperCase();
-    if (s === "ACTIVE") return <span style={styles.badgeSuccess}>ACTIVE</span>;
-    if (s === "INACTIVE") return <span style={styles.badgeError}>INACTIVE</span>;
-    if (s === "BETA") return <span style={styles.badgeWarning}>BETA</span>;
+
+    if (s === "ACTIVE") {
+      return <span style={styles.badgeSuccess}>ACTIVE</span>;
+    }
+    if (s === "INACTIVE") {
+      return <span style={styles.badgeError}>INACTIVE</span>;
+    }
+    if (s === "BETA") {
+      return <span style={styles.badgeWarning}>BETA</span>;
+    }
+
     return <span style={styles.badgeInfo}>{s || "—"}</span>;
   }
 
@@ -110,6 +151,7 @@ export default function DbTypes() {
       status: String(item.status || "ACTIVE").toUpperCase(),
       description: item.description || "",
     });
+
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -122,10 +164,10 @@ export default function DbTypes() {
     const payload = {
       code: form.code.trim().toUpperCase(),
       name: form.name.trim(),
-      version: form.version.trim(),
-      driver: form.driver.trim(),
-      status: form.status,
-      description: form.description.trim(),
+      version: form.version.trim() || null,
+      driver: form.driver.trim() || null,
+      status: (form.status || "ACTIVE").trim().toUpperCase(),
+      description: form.description.trim() || null,
     };
 
     try {
@@ -139,12 +181,14 @@ export default function DbTypes() {
 
       resetForm();
       await loadDbTypes();
-    } catch {
+    } catch (e) {
       setMessage({
         type: "error",
-        text: editId
-          ? "Erreur lors de la modification."
-          : "Erreur lors de la création.",
+        text:
+          e.message ||
+          (editId
+            ? "Erreur lors de la modification."
+            : "Erreur lors de la création."),
       });
     }
   }
@@ -153,7 +197,7 @@ export default function DbTypes() {
     if (!deleteItem) return;
 
     try {
-      await apiDelete(`/db-types/${deleteItem.db_type_id}`);
+      await apiDelete(`/db-types/${deleteItem.db_type_id}?soft=false`);
       setMessage({ type: "success", text: "Type BD supprimé ✅" });
 
       if (editId === deleteItem.db_type_id) {
@@ -162,18 +206,16 @@ export default function DbTypes() {
 
       setDeleteItem(null);
       await loadDbTypes();
-    } catch {
-      setMessage({ type: "error", text: "Erreur lors de la suppression." });
+    } catch (e) {
+      setMessage({
+        type: "error",
+        text: e.message || "Erreur lors de la suppression.",
+      });
     }
   }
 
   const filteredData = useMemo(() => {
-    let result = Array.isArray(data) ? data : [];
-
-    // Cacher les éléments supprimés logiquement / inactifs
-    result = result.filter(
-      (x) => String(x.status || "").toUpperCase() !== "INACTIVE"
-    );
+    const result = Array.isArray(data) ? data : [];
 
     if (!search.trim()) return result;
 
@@ -181,10 +223,13 @@ export default function DbTypes() {
 
     return result.filter(
       (x) =>
+        String(x.db_type_id || "").toLowerCase().includes(s) ||
         String(x.code || "").toLowerCase().includes(s) ||
         String(x.name || "").toLowerCase().includes(s) ||
+        String(x.version || "").toLowerCase().includes(s) ||
         String(x.driver || "").toLowerCase().includes(s) ||
-        String(x.version || "").toLowerCase().includes(s)
+        String(x.description || "").toLowerCase().includes(s) ||
+        String(x.status || "").toLowerCase().includes(s)
     );
   }, [data, search]);
 
@@ -211,13 +256,16 @@ export default function DbTypes() {
           placeholder="🔎 Rechercher Oracle, PostgreSQL, driver..."
         />
 
-        <button style={styles.secondaryButton} onClick={loadDbTypes}>
-           Rafraîchir
+        <button
+          style={styles.secondaryButton}
+          onClick={() => loadDbTypes(true)}
+        >
+          Rafraîchir
         </button>
       </div>
 
       <SectionCard>
-        <SectionTitle text={editId ? " MODIFIER UN TYPE BD" : " AJOUTER UN TYPE BD"} />
+        <SectionTitle text={editId ? "MODIFIER UN TYPE BD" : "AJOUTER UN TYPE BD"} />
         <div style={styles.helperText}>
           Le code doit être unique. Utilise cette section pour ajouter ou modifier un SGBD.
         </div>
@@ -289,17 +337,19 @@ export default function DbTypes() {
             rows={5}
             value={form.description}
             placeholder="Description du SGBD..."
-            onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
+            onChange={(e) =>
+              setForm((p) => ({ ...p, description: e.target.value }))
+            }
           />
         </div>
 
         <div style={styles.buttonRow}>
           <button style={styles.primaryButton} onClick={handleSave}>
-            {editId ? " Enregistrer" : " Créer"}
+            {editId ? "Enregistrer" : "Créer"}
           </button>
 
           <button style={styles.secondaryButton} onClick={resetForm}>
-            🧹 Réinitialiser
+            Réinitialiser
           </button>
 
           {editId ? (
@@ -310,7 +360,7 @@ export default function DbTypes() {
                 if (current) setDeleteItem(current);
               }}
             >
-               Supprimer
+              Supprimer
             </button>
           ) : null}
         </div>
@@ -319,15 +369,16 @@ export default function DbTypes() {
       <div style={{ height: 20 }} />
 
       <SectionCard>
-        <SectionTitle text=" TABLE DB_TYPES" />
+        <SectionTitle text="TABLE DB_TYPES" />
 
         {loading ? (
           <InfoBox text="Chargement..." />
         ) : !filteredData.length ? (
           <div style={styles.emptyState}>
-            <div style={styles.emptyIcon}></div>
             <div style={styles.emptyTitle}>Aucun type BD trouvé</div>
-            <div style={styles.emptySub}>Vérifie la recherche ou ajoute un nouveau type.</div>
+            <div style={styles.emptySub}>
+              Vérifie la recherche ou ajoute un nouveau type.
+            </div>
           </div>
         ) : (
           <DataTable
@@ -372,12 +423,15 @@ export default function DbTypes() {
       {deleteItem && (
         <Modal title="Supprimer le type BD" onClose={() => setDeleteItem(null)}>
           <div style={styles.deleteBox}>
-            ⚠️ Vous allez supprimer <b>{deleteItem.name}</b> (ID {deleteItem.db_type_id}).
-            Cette action est <b>irréversible</b>.
+            Vous allez supprimer <b>{deleteItem.name}</b> (ID{" "}
+            {deleteItem.db_type_id}). Cette action est irréversible.
           </div>
 
           <div style={styles.buttonRow}>
-            <button style={styles.secondaryButton} onClick={() => setDeleteItem(null)}>
+            <button
+              style={styles.secondaryButton}
+              onClick={() => setDeleteItem(null)}
+            >
               Annuler
             </button>
             <button style={styles.dangerButton} onClick={handleDeleteConfirm}>

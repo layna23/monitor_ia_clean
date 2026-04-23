@@ -10,24 +10,37 @@ router = APIRouter(prefix="/db-types", tags=["DB Types"])
 
 @router.get("/", response_model=list[DbTypeOut])
 def list_db_types(db: Session = Depends(get_db)):
-    return db.query(DbType).all()
+    return db.query(DbType).order_by(DbType.db_type_id).all()
 
 
 @router.post("/", response_model=DbTypeOut)
 def create_db_type(payload: DbTypeCreate, db: Session = Depends(get_db)):
-    # check unique code
-    exists = db.query(DbType).filter(DbType.code == payload.code).first()
+    code = payload.code.strip().upper()
+    name = payload.name.strip()
+
+    if not code:
+        raise HTTPException(status_code=400, detail="CODE is required")
+
+    if not name:
+        raise HTTPException(status_code=400, detail="NAME is required")
+
+    exists = db.query(DbType).filter(DbType.code == code).first()
     if exists:
         raise HTTPException(status_code=400, detail="CODE already exists")
 
+    status = (payload.status or "ACTIVE").strip().upper()
+    if status not in {"ACTIVE", "INACTIVE", "BETA"}:
+        raise HTTPException(status_code=400, detail="Invalid status")
+
     obj = DbType(
-        code=payload.code,
-        name=payload.name,
-        version=payload.version,
-        driver=payload.driver,
-        description=payload.description,
-        status=payload.status if payload.status else None,  # si None => default DB
+        code=code,
+        name=name,
+        version=payload.version.strip() if payload.version else None,
+        driver=payload.driver.strip() if payload.driver else None,
+        description=payload.description.strip() if payload.description else None,
+        status=status,
     )
+
     db.add(obj)
     db.commit()
     db.refresh(obj)
@@ -40,25 +53,37 @@ def update_db_type(db_type_id: int, payload: DbTypeUpdate, db: Session = Depends
     if not obj:
         raise HTTPException(status_code=404, detail="DB Type not found")
 
-    # si on modifie le code, vérifier unicité
-    if payload.code and payload.code != obj.code:
-        exists = db.query(DbType).filter(DbType.code == payload.code).first()
-        if exists:
-            raise HTTPException(status_code=400, detail="CODE already exists")
-
-    # update champs (uniquement si fourni)
     if payload.code is not None:
-        obj.code = payload.code
+        new_code = payload.code.strip().upper()
+        if not new_code:
+            raise HTTPException(status_code=400, detail="CODE cannot be empty")
+
+        if new_code != obj.code:
+            exists = db.query(DbType).filter(DbType.code == new_code).first()
+            if exists:
+                raise HTTPException(status_code=400, detail="CODE already exists")
+        obj.code = new_code
+
     if payload.name is not None:
-        obj.name = payload.name
+        new_name = payload.name.strip()
+        if not new_name:
+            raise HTTPException(status_code=400, detail="NAME cannot be empty")
+        obj.name = new_name
+
     if payload.version is not None:
-        obj.version = payload.version
+        obj.version = payload.version.strip() if payload.version else None
+
     if payload.driver is not None:
-        obj.driver = payload.driver
+        obj.driver = payload.driver.strip() if payload.driver else None
+
     if payload.description is not None:
-        obj.description = payload.description
+        obj.description = payload.description.strip() if payload.description else None
+
     if payload.status is not None:
-        obj.status = payload.status
+        new_status = payload.status.strip().upper() if payload.status else "ACTIVE"
+        if new_status not in {"ACTIVE", "INACTIVE", "BETA"}:
+            raise HTTPException(status_code=400, detail="Invalid status")
+        obj.status = new_status
 
     db.commit()
     db.refresh(obj)
@@ -68,20 +93,19 @@ def update_db_type(db_type_id: int, payload: DbTypeUpdate, db: Session = Depends
 @router.delete("/{db_type_id}")
 def delete_db_type(
     db_type_id: int,
-    soft: bool = Query(True, description="Soft delete: status=INACTIVE (recommended)"),
-    db: Session = Depends(get_db)
+    soft: bool = Query(False, description="Soft delete: status=INACTIVE"),
+    db: Session = Depends(get_db),
 ):
     obj = db.query(DbType).filter(DbType.db_type_id == db_type_id).first()
     if not obj:
         raise HTTPException(status_code=404, detail="DB Type not found")
 
     if soft:
-        # suppression logique
         obj.status = "INACTIVE"
         db.commit()
+        db.refresh(obj)
         return {"success": True, "message": "DB Type deactivated (status=INACTIVE)"}
 
-    # suppression physique
     db.delete(obj)
     db.commit()
     return {"success": True, "message": "DB Type deleted"}
