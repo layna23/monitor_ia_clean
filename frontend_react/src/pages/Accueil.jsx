@@ -7,6 +7,8 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
+  Brush,
 } from "recharts";
 import api from "../api/client";
 
@@ -225,6 +227,150 @@ function MetricTag({ text, variant = "critical" }) {
   return <span style={style}>{text}</span>;
 }
 
+function GlobalPerformanceChart({ data }) {
+  if (!data.length) {
+    return <EmptyBox message="Aucune donnée globale CPU / RAM / DB Time disponible." />;
+  }
+
+  return (
+    <div>
+      <div style={styles.globalLegendWrap}>
+        <span
+          style={{
+            ...styles.legendPill,
+            color: "#ef4444",
+            borderColor: "#fecaca",
+            background: "#fff5f5",
+          }}
+        >
+          <span style={{ ...styles.legendDot, background: "#ef4444" }} />
+          CPU
+        </span>
+
+        <span
+          style={{
+            ...styles.legendPill,
+            color: "#7c3aed",
+            borderColor: "#ddd6fe",
+            background: "#faf5ff",
+          }}
+        >
+          <span style={{ ...styles.legendDot, background: "#7c3aed" }} />
+          RAM
+        </span>
+
+        <span
+          style={{
+            ...styles.legendPill,
+            color: "#2563eb",
+            borderColor: "#bfdbfe",
+            background: "#eff6ff",
+          }}
+        >
+          <span style={{ ...styles.legendDot, background: "#2563eb" }} />
+          DB Time
+        </span>
+      </div>
+
+      <ResponsiveContainer width="100%" height={380}>
+        <LineChart data={data} margin={{ top: 8, right: 24, left: 8, bottom: 18 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#dbe3ef" />
+
+          <XAxis
+            dataKey="label"
+            tick={{ fontSize: 11, fill: "#64748b" }}
+            stroke="#94a3b8"
+            minTickGap={24}
+          />
+
+          <YAxis
+            domain={[0, 100]}
+            tick={{ fontSize: 11, fill: "#64748b" }}
+            stroke="#94a3b8"
+            width={56}
+            tickFormatter={(value) => `${value}%`}
+          />
+
+          <Tooltip
+            contentStyle={{
+              background: "#ffffff",
+              border: "1px solid #e2e8f0",
+              borderRadius: 12,
+              fontSize: 12,
+              boxShadow: "0 8px 24px rgba(15,23,42,0.08)",
+            }}
+            formatter={(value, name, props) => {
+              const payload = props?.payload || {};
+
+              if (name === "cpu_normalized") {
+                return [`${payload.cpu_avg ?? "—"} % (${value}%)`, "CPU moyen"];
+              }
+
+              if (name === "ram_normalized") {
+                return [`${payload.ram_avg ?? "—"} MB (${value}%)`, "RAM moyenne"];
+              }
+
+              if (name === "db_time_normalized") {
+                return [`${payload.db_time_avg ?? "—"} ms (${value}%)`, "DB Time moyen"];
+              }
+
+              return [value, name];
+            }}
+            labelFormatter={(label) => `Date : ${label}`}
+          />
+
+          <Legend />
+
+          <Line
+            type="monotone"
+            dataKey="cpu_normalized"
+            name="CPU moyen"
+            stroke="#ef4444"
+            strokeWidth={3}
+            dot={false}
+            activeDot={{ r: 5 }}
+            connectNulls
+          />
+
+          <Line
+            type="monotone"
+            dataKey="ram_normalized"
+            name="RAM moyenne"
+            stroke="#7c3aed"
+            strokeWidth={3}
+            dot={false}
+            activeDot={{ r: 5 }}
+            connectNulls
+          />
+
+          <Line
+            type="monotone"
+            dataKey="db_time_normalized"
+            name="DB Time moyen"
+            stroke="#2563eb"
+            strokeWidth={3}
+            dot={false}
+            activeDot={{ r: 5 }}
+            connectNulls
+          />
+
+          <Brush
+            dataKey="label"
+            height={24}
+            stroke="#94a3b8"
+            travellerWidth={10}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+
+      <div style={styles.globalChartNote}>
+        Les courbes sont <strong>normalisées de 0 à 100%</strong> pour comparer
+        visuellement CPU, RAM et DB Time sur toutes les bases Oracle collectées.
+      </div>
+    </div>
+  );
+}
+
 export default function Accueil() {
   const [backendOk, setBackendOk] = useState(false);
   const [targetDbs, setTargetDbs] = useState([]);
@@ -236,6 +382,9 @@ export default function Accueil() {
   const [selectedDbOverview, setSelectedDbOverview] = useState(null);
   const [selectedDbHistory, setSelectedDbHistory] = useState([]);
   const [metricsLoading, setMetricsLoading] = useState(false);
+
+  const [globalHistoryLoading, setGlobalHistoryLoading] = useState(false);
+  const [allOracleHistories, setAllOracleHistories] = useState([]);
 
   useEffect(() => {
     const chargerDonnees = async () => {
@@ -316,6 +465,45 @@ export default function Accueil() {
     chargerVisualisation();
   }, [selectedDbId]);
 
+  useEffect(() => {
+    if (!oracleBases.length) {
+      setAllOracleHistories([]);
+      return;
+    }
+
+    const chargerToutesLesHistoriques = async () => {
+      setGlobalHistoryLoading(true);
+
+      try {
+        const responses = await Promise.all(
+          oracleBases.map((db) =>
+            api
+              .get(`/target-dbs/${db.db_id}/metrics-history?limit=120`)
+              .then((res) => ({
+                db_id: db.db_id,
+                db_name: db.db_name,
+                rows: Array.isArray(res?.data) ? res.data : [],
+              }))
+              .catch(() => ({
+                db_id: db.db_id,
+                db_name: db.db_name,
+                rows: [],
+              }))
+          )
+        );
+
+        setAllOracleHistories(responses);
+      } catch (err) {
+        console.error(err);
+        setAllOracleHistories([]);
+      } finally {
+        setGlobalHistoryLoading(false);
+      }
+    };
+
+    chargerToutesLesHistoriques();
+  }, [oracleBases]);
+
   const activeMetrics = metricDefs.filter((m) => Number(m.is_active || 0) === 1).length;
 
   const EXCLUDED_METRICS = useMemo(
@@ -352,6 +540,97 @@ export default function Accueil() {
 
     return grouped;
   }, [selectedDbHistory, EXCLUDED_METRICS]);
+
+  const globalPerformanceData = useMemo(() => {
+    const IMPORTANT_CODES = new Set(["CPU_USAGE", "RAM_USAGE", "DB_TIME"]);
+    const merged = {};
+
+    allOracleHistories.forEach((dbItem) => {
+      const rows = Array.isArray(dbItem?.rows) ? dbItem.rows : [];
+
+      rows.forEach((row) => {
+        const code = String(row.metric_code || "").toUpperCase();
+        if (!IMPORTANT_CODES.has(code)) return;
+
+        const collectedAt = row.collected_at;
+        const numericValue = Number(row.value_number);
+
+        if (!collectedAt || Number.isNaN(numericValue)) return;
+
+        if (!merged[collectedAt]) {
+          merged[collectedAt] = {
+            label: formatHistoryLabel(collectedAt),
+            sortKey: new Date(collectedAt).getTime() || 0,
+            cpu_values: [],
+            ram_values: [],
+            db_time_values: [],
+          };
+        }
+
+        if (code === "CPU_USAGE") merged[collectedAt].cpu_values.push(numericValue);
+        if (code === "RAM_USAGE") merged[collectedAt].ram_values.push(numericValue);
+        if (code === "DB_TIME") merged[collectedAt].db_time_values.push(numericValue);
+      });
+    });
+
+    const avg = (arr) => {
+      if (!arr.length) return null;
+      return Number((arr.reduce((sum, v) => sum + v, 0) / arr.length).toFixed(2));
+    };
+
+    const normalizeSeries = (items, key) => {
+      const values = items
+        .map((item) => item[key])
+        .filter((v) => v !== null && v !== undefined && !Number.isNaN(v));
+
+      if (!values.length) {
+        return items.map((item) => ({ ...item, [`${key}_normalized`]: null }));
+      }
+
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+
+      return items.map((item) => {
+        const value = item[key];
+
+        if (value === null || value === undefined || Number.isNaN(value)) {
+          return { ...item, [`${key}_normalized`]: null };
+        }
+
+        if (max === min) {
+          return { ...item, [`${key}_normalized`]: 50 };
+        }
+
+        const normalized = ((value - min) / (max - min)) * 100;
+
+        return {
+          ...item,
+          [`${key}_normalized`]: Number(normalized.toFixed(2)),
+        };
+      });
+    };
+
+    let result = Object.values(merged)
+      .map((item) => ({
+        label: item.label,
+        sortKey: item.sortKey,
+        cpu_avg: avg(item.cpu_values),
+        ram_avg: avg(item.ram_values),
+        db_time_avg: avg(item.db_time_values),
+      }))
+      .sort((a, b) => a.sortKey - b.sortKey);
+
+    result = normalizeSeries(result, "cpu_avg");
+    result = normalizeSeries(result, "ram_avg");
+    result = normalizeSeries(result, "db_time_avg");
+
+    return result.map((item) => ({
+      ...item,
+      cpu_normalized: item.cpu_avg_normalized,
+      ram_normalized: item.ram_avg_normalized,
+      db_time_normalized: item.db_time_avg_normalized,
+    }));
+  }, [allOracleHistories]);
 
   const metricCharts = useMemo(() => {
     return selectedLatestMetrics
@@ -427,6 +706,19 @@ export default function Accueil() {
       </div>
 
       <div style={styles.stackLayout}>
+        <Card
+          title="Analyse globale de la performance"
+          subtitle="CPU, RAM et DB Time pour l’ensemble des bases Oracle collectées"
+        >
+          {globalHistoryLoading ? (
+            <div style={styles.loadingInline}>
+              Chargement du graphique global...
+            </div>
+          ) : (
+            <GlobalPerformanceChart data={globalPerformanceData} />
+          )}
+        </Card>
+
         <Card title="Choisir une base">
           {oracleBases.length === 0 ? (
             <EmptyBox message="Aucune base Oracle active trouvée." />
@@ -478,10 +770,7 @@ export default function Accueil() {
                 label="Service"
                 value={selectedDbOverview?.service_name || "—"}
               />
-              <InfoMini
-                label="SID"
-                value={selectedDbOverview?.sid || "—"}
-              />
+              <InfoMini label="SID" value={selectedDbOverview?.sid || "—"} />
               <InfoMini
                 label="Dernière collecte"
                 value={
@@ -625,7 +914,7 @@ export default function Accueil() {
 
         <Card
           title="Graphiques des métriques"
-          subtitle="Historique des métriques numériques disponibles"
+          subtitle="Historique détaillé des métriques numériques disponibles pour la base sélectionnée"
         >
           {!selectedDbId ? (
             <EmptyBox message="Sélectionnez une base." />
@@ -1001,5 +1290,37 @@ const styles = {
     border: "1px dashed #cbd5e1",
     borderRadius: 12,
     color: "#94a3b8",
+  },
+
+  globalLegendWrap: {
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+    marginBottom: 16,
+  },
+
+  legendPill: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    border: "1px solid",
+    borderRadius: 999,
+    padding: "8px 12px",
+    fontSize: 13,
+    fontWeight: 700,
+  },
+
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: "50%",
+    display: "inline-block",
+  },
+
+  globalChartNote: {
+    marginTop: 12,
+    fontSize: 13,
+    color: "#64748b",
+    lineHeight: 1.6,
   },
 };
