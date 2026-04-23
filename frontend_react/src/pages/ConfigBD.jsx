@@ -197,7 +197,7 @@ export default function ConfigBD() {
         }
 
         await apiPut(`${TARGET_ENDPOINT}${editId}`, upd);
-        setMessage({ type: "success", text: "Target DB modifiée ✅" });
+        setMessage({ type: "success", text: "Target DB modifiée " });
       } else {
         if (!String(payload.password || "").trim()) {
           setMessage({
@@ -208,7 +208,7 @@ export default function ConfigBD() {
         }
 
         await apiPost(TARGET_ENDPOINT, payload);
-        setMessage({ type: "success", text: "Target DB ajoutée ✅" });
+        setMessage({ type: "success", text: "Target DB ajoutée " });
       }
 
       resetForm();
@@ -233,7 +233,7 @@ USER=${form.username}`;
     if (!selectedId) return;
     try {
       await apiDelete(`${TARGET_ENDPOINT}${intOrNone(selectedId)}`);
-      setMessage({ type: "success", text: "Désactivée ✅" });
+      setMessage({ type: "success", text: "Désactivée " });
       await refreshAll(showInactive);
     } catch {
       setMessage({ type: "error", text: "Erreur lors de la désactivation." });
@@ -244,7 +244,7 @@ USER=${form.username}`;
     if (!selectedId) return;
     try {
       await apiDelete(`${TARGET_ENDPOINT}${intOrNone(selectedId)}?hard=true`);
-      setMessage({ type: "success", text: "Supprimée ✅" });
+      setMessage({ type: "success", text: "Supprimée " });
       await refreshAll(showInactive);
     } catch {
       setMessage({ type: "error", text: "Erreur lors de la suppression définitive." });
@@ -311,19 +311,19 @@ USER=${form.username}`;
             resetForm();
           }}
         >
-          ➕ Nouvelle base
+           Nouvelle base
         </button>
 
         <button
           style={styles.secondaryButton}
           onClick={() => refreshAll(showInactive)}
         >
-          🔄 Rafraîchir
+           Rafraîchir
         </button>
       </div>
 
       <SectionCard>
-        <SectionTitle text={`🗄️ ${actionTitle}`} />
+        <SectionTitle text={` ${actionTitle}`} />
         <div style={styles.helperText}>
           db_name + host + port doivent être uniques.
         </div>
@@ -435,13 +435,13 @@ USER=${form.username}`;
 
         <div style={styles.buttonRow}>
           <button style={styles.primaryButton} onClick={handleSave}>
-            💾 Sauvegarder
+             Sauvegarder
           </button>
           <button style={styles.secondaryButton} onClick={resetForm}>
-            🧹 Réinitialiser
+             Réinitialiser
           </button>
           <button style={styles.secondaryButton} onClick={handlePreview}>
-            🔌 Aperçu config
+             Aperçu config
           </button>
         </div>
       </SectionCard>
@@ -460,12 +460,12 @@ USER=${form.username}`;
       </div>
 
       <SectionCard>
-        <SectionTitle text="📌 BASES CONFIGURÉES" />
+        <SectionTitle text=" BASES CONFIGURÉES" />
         <div style={styles.helperText}>Liste des Target DBs</div>
 
         {!targets.length ? (
           <EmptyState
-            icon="🗄️"
+            icon=""
             title="Aucune base configurée."
             subtitle=""
           />
@@ -528,7 +528,7 @@ USER=${form.username}`;
               />
             ) : (
               <EmptyState
-                icon="🔎"
+                icon=""
                 title="Aucun résultat"
                 subtitle="Aucune base ne correspond aux filtres."
               />

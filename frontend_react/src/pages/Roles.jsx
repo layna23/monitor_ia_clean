@@ -131,7 +131,7 @@ export default function Roles() {
         role_name: rn,
       });
 
-      setMessage({ type: "success", text: "Rôle créé ✅" });
+      setMessage({ type: "success", text: "Rôle créé " });
       setShowCreate(false);
       resetCreateForm();
       await loadRoles();
@@ -159,7 +159,7 @@ export default function Roles() {
         role_name: rn,
       });
 
-      setMessage({ type: "success", text: "Rôle mis à jour ✅" });
+      setMessage({ type: "success", text: "Rôle mis à jour " });
       await loadRoles();
     } catch {
       setMessage({ type: "error", text: "Erreur lors de la mise à jour." });
@@ -173,7 +173,7 @@ export default function Roles() {
 
     try {
       await apiDelete(`/roles/${selectedDeleteRole.role_id}`);
-      setMessage({ type: "success", text: "Rôle supprimé ✅" });
+      setMessage({ type: "success", text: "Rôle supprimé " });
       setConfirmDelete(false);
       await loadRoles();
     } catch {
@@ -198,10 +198,10 @@ export default function Roles() {
 
       <div style={styles.toolbar}>
         <button style={styles.primaryButton} onClick={() => setShowCreate(true)}>
-          ➕ Nouveau rôle
+           Nouveau rôle
         </button>
         <button style={styles.secondaryButton} onClick={loadRoles}>
-          🔄 Rafraîchir
+           Rafraîchir
         </button>
       </div>
 
@@ -342,7 +342,7 @@ export default function Roles() {
 
               {selectedDeleteRole && (
                 <div style={styles.dangerNote}>
-                  ⚠️ Action irréversible — rôle <b>{selectedDeleteRole.role_code}</b> supprimé
+                   Action irréversible — rôle <b>{selectedDeleteRole.role_code}</b> supprimé
                   définitivement.
                 </div>
               )}

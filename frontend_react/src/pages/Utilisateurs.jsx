@@ -156,7 +156,7 @@ export default function Utilisateurs() {
         is_active: createForm.is_active ? 1 : 0,
       });
 
-      setMessage({ type: "success", text: "Utilisateur créé ✅" });
+      setMessage({ type: "success", text: "Utilisateur créé " });
       setShowCreate(false);
       resetCreateForm();
       await loadUsers();
@@ -182,7 +182,7 @@ export default function Utilisateurs() {
       }
 
       await apiPut(`/users/${editForm.user_id}`, payload);
-      setMessage({ type: "success", text: "Utilisateur mis à jour ✅" });
+      setMessage({ type: "success", text: "Utilisateur mis à jour " });
       await loadUsers();
       setEditForm((prev) => ({ ...prev, password: "" }));
     } catch {
@@ -197,7 +197,7 @@ export default function Utilisateurs() {
 
     try {
       await apiDelete(`/users/${selectedDeleteUser.user_id}`);
-      setMessage({ type: "success", text: "Utilisateur supprimé ✅" });
+      setMessage({ type: "success", text: "Utilisateur supprimé " });
       setConfirmDelete(false);
       await loadUsers();
     } catch {
@@ -222,10 +222,10 @@ export default function Utilisateurs() {
 
       <div style={styles.toolbar}>
         <button style={styles.primaryButton} onClick={() => setShowCreate(true)}>
-          ➕ Nouvel utilisateur
+           Nouvel utilisateur
         </button>
         <button style={styles.secondaryButton} onClick={loadUsers}>
-          🔄 Rafraîchir
+           Rafraîchir
         </button>
       </div>
 
@@ -297,13 +297,13 @@ export default function Utilisateurs() {
       )}
 
       <SectionCard>
-        <SectionTitle icon="👤" text="UTILISATEURS ENREGISTRÉS" />
+        <SectionTitle icon="" text="UTILISATEURS ENREGISTRÉS" />
 
         {loading ? (
           <InfoBox text="Chargement..." />
         ) : users.length === 0 ? (
           <EmptyState
-            icon="👤"
+            icon=""
             message="Aucun utilisateur trouvé. Créez votre premier compte avec le bouton ci-dessus."
           />
         ) : (

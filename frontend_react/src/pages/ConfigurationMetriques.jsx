@@ -277,10 +277,10 @@ export default function ConfigurationMetriques() {
     try {
       if (editId != null) {
         await apiPut(`/metric-defs/${editId}`, payload);
-        setMessage({ type: "success", text: "Métrique modifiée ✅" });
+        setMessage({ type: "success", text: "Métrique modifiée " });
       } else {
         await apiPost("/metric-defs/", payload);
-        setMessage({ type: "success", text: "Métrique créée ✅" });
+        setMessage({ type: "success", text: "Métrique créée " });
       }
 
       resetForm();
@@ -305,7 +305,7 @@ export default function ConfigurationMetriques() {
 
     try {
       await apiDelete(`/metric-defs/${Number(selectedMetricId)}`);
-      setMessage({ type: "success", text: "Supprimée ✅" });
+      setMessage({ type: "success", text: "Supprimée " });
 
       if (editId != null && String(editId) === String(selectedMetricId)) {
         resetForm();
@@ -357,7 +357,7 @@ export default function ConfigurationMetriques() {
       ) : null}
 
       <SectionCard>
-        <SectionTitle icon="📐" text={actionLabel} />
+        <SectionTitle icon="" text={actionLabel} />
 
         <div style={styles.formGridTop}>
           <div>
@@ -499,13 +499,13 @@ export default function ConfigurationMetriques() {
 
         <div style={styles.buttonRow}>
           <button onClick={handleSave} style={styles.primaryButton}>
-            💾 Sauvegarder
+             Sauvegarder
           </button>
           <button onClick={handleTestQuery} style={styles.secondaryButton}>
             ▶ Tester la requête
           </button>
           <button onClick={resetForm} style={styles.secondaryButton}>
-            🧹 Réinitialiser
+             Réinitialiser
           </button>
         </div>
 
@@ -522,11 +522,11 @@ export default function ConfigurationMetriques() {
       <div style={{ height: 18 }} />
 
       <SectionCard>
-        <SectionTitle icon="📌" text="MÉTRIQUES CONFIGURÉES" />
+        <SectionTitle icon="" text="MÉTRIQUES CONFIGURÉES" />
 
         {rows.length === 0 ? (
           <div style={styles.emptyState}>
-            <div style={{ fontSize: 34, marginBottom: 10 }}>📐</div>
+            <div style={{ fontSize: 34, marginBottom: 10 }}></div>
             Aucune métrique configurée.
           </div>
         ) : (

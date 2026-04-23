@@ -528,11 +528,10 @@ export default function Accueil() {
       const code = String(row.metric_code || "").toUpperCase();
       if (!code || EXCLUDED_METRICS.has(code)) return;
 
-      if (!grouped[code]) grouped[code] = [];
-
+      grouped[code] ||= [];
       grouped[code].push({
         label: formatHistoryLabel(row.collected_at),
-        value: row.value_number,
+        value: row.value_number ?? row.value_text,
         warn_threshold: row.warn_threshold,
         crit_threshold: row.crit_threshold,
       });
@@ -542,20 +541,28 @@ export default function Accueil() {
   }, [selectedDbHistory, EXCLUDED_METRICS]);
 
   const globalPerformanceData = useMemo(() => {
-    const IMPORTANT_CODES = new Set(["CPU_USAGE", "RAM_USAGE", "DB_TIME"]);
     const merged = {};
 
     allOracleHistories.forEach((dbItem) => {
       const rows = Array.isArray(dbItem?.rows) ? dbItem.rows : [];
 
       rows.forEach((row) => {
-        const code = String(row.metric_code || "").toUpperCase();
-        if (!IMPORTANT_CODES.has(code)) return;
-
+        const code = String(row.metric_code || "").trim().toUpperCase();
         const collectedAt = row.collected_at;
-        const numericValue = Number(row.value_number);
+        const rawValue = row.value_number ?? row.value_text;
+        const numericValue = Number(rawValue);
 
         if (!collectedAt || Number.isNaN(numericValue)) return;
+
+        const isCpu = code === "CPU_USAGE";
+        const isRam =
+          code === "RAM_USAGE" ||
+          code === "RAM USAGE" ||
+          code === "MEMORY_USAGE" ||
+          code === "MEMORY";
+        const isDbTime = code === "DB_TIME" || code === "DB TIME";
+
+        if (!isCpu && !isRam && !isDbTime) return;
 
         if (!merged[collectedAt]) {
           merged[collectedAt] = {
@@ -567,9 +574,9 @@ export default function Accueil() {
           };
         }
 
-        if (code === "CPU_USAGE") merged[collectedAt].cpu_values.push(numericValue);
-        if (code === "RAM_USAGE") merged[collectedAt].ram_values.push(numericValue);
-        if (code === "DB_TIME") merged[collectedAt].db_time_values.push(numericValue);
+        if (isCpu) merged[collectedAt].cpu_values.push(numericValue);
+        if (isRam) merged[collectedAt].ram_values.push(numericValue);
+        if (isDbTime) merged[collectedAt].db_time_values.push(numericValue);
       });
     });
 
