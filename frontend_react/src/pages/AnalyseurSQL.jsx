@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import AiAnalysisPanel from "../components/sql-analyzer/AiAnalysisPanel";
 
 const API_BASE = "http://127.0.0.1:8000";
 
@@ -18,6 +19,7 @@ export default function AnalyseurSQL() {
   const [topSqlLoading, setTopSqlLoading] = useState(false);
   const [planTextLoading, setPlanTextLoading] = useState(false);
 
+  const [activeBottomTab, setActiveBottomTab] = useState("plan");
   const [message, setMessage] = useState({ type: "", text: "" });
 
   async function apiGet(endpoint, defaultValue = null) {
@@ -103,10 +105,7 @@ export default function AnalyseurSQL() {
 
       const result = await apiGet(
         `/sql-analyzer/top-queries?${params.toString()}`,
-        {
-          success: false,
-          queries: [],
-        }
+        { success: false, queries: [] }
       );
 
       const mapped = Array.isArray(result?.queries)
@@ -126,21 +125,25 @@ export default function AnalyseurSQL() {
     }
   }
 
-  async function fetchPlanForPhv(sqlId, phv) {
+  async function fetchPlanForPhv(sqlId, phv, returnOnly = false) {
     if (!selectedDbId || !sqlId || phv === null || phv === undefined) {
-      setPlanText("");
-      return;
+      if (!returnOnly) setPlanText("");
+      return "";
     }
 
     try {
-      setPlanTextLoading(true);
-      setMessage({ type: "", text: "" });
-      setSelectedPhv(phv);
+      if (!returnOnly) {
+        setPlanTextLoading(true);
+        setMessage({ type: "", text: "" });
+        setSelectedPhv(phv);
+      }
 
       const result = await apiGet(
         `/sql-analyzer/sql-plan-text?db_id=${selectedDbId}&sql_id=${encodeURIComponent(
           sqlId
-        )}&phv=${encodeURIComponent(phv)}&format_value=${encodeURIComponent("TYPICAL")}`,
+        )}&phv=${encodeURIComponent(phv)}&format_value=${encodeURIComponent(
+          "TYPICAL"
+        )}`,
         {
           success: false,
           lines: [],
@@ -148,16 +151,29 @@ export default function AnalyseurSQL() {
         }
       );
 
-      setPlanText(result?.plan_text || "");
+      const text = result?.plan_text || "";
+
+      if (!returnOnly) {
+        setPlanText(text);
+      }
+
+      return text;
     } catch (e) {
       console.error(e);
-      setPlanText("");
-      setMessage({
-        type: "error",
-        text: e.message || "Erreur récupération du plan",
-      });
+
+      if (!returnOnly) {
+        setPlanText("");
+        setMessage({
+          type: "error",
+          text: e.message || "Erreur récupération du plan",
+        });
+      }
+
+      return "";
     } finally {
-      setPlanTextLoading(false);
+      if (!returnOnly) {
+        setPlanTextLoading(false);
+      }
     }
   }
 
@@ -208,6 +224,7 @@ export default function AnalyseurSQL() {
     setSelectedScriptId("");
     setSelectedPhv(null);
     setPlanText("");
+    setActiveBottomTab("plan");
   }, [selectedDbId, excludeDbmon, sortBy]);
 
   useEffect(() => {
@@ -227,7 +244,8 @@ export default function AnalyseurSQL() {
 
   const selectedScript = useMemo(() => {
     return (
-      topQueries.find((s) => String(s.script_id) === String(selectedScriptId)) || null
+      topQueries.find((s) => String(s.script_id) === String(selectedScriptId)) ||
+      null
     );
   }, [topQueries, selectedScriptId]);
 
@@ -259,6 +277,7 @@ export default function AnalyseurSQL() {
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return String(value);
     const pad = (n) => String(n).padStart(2, "0");
+
     return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(
       d.getHours()
     )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
@@ -273,6 +292,7 @@ export default function AnalyseurSQL() {
 
   async function handleCopyPlan() {
     if (!planText) return;
+
     try {
       await navigator.clipboard.writeText(planText);
       setMessage({ type: "success", text: "Plan copié dans le presse-papiers." });
@@ -388,8 +408,14 @@ export default function AnalyseurSQL() {
             rows={topQueries}
             selectedScriptId={selectedScriptId}
             selectedPhv={selectedPhv}
-            onSelectScript={(id) => setSelectedScriptId(String(id))}
-            onSelectPhv={(sqlId, phv) => fetchPlanForPhv(sqlId, phv)}
+            onSelectScript={(id) => {
+              setSelectedScriptId(String(id));
+              setActiveBottomTab("plan");
+            }}
+            onSelectPhv={(sqlId, phv) => {
+              setActiveBottomTab("plan");
+              fetchPlanForPhv(sqlId, phv);
+            }}
             formatNumber={formatNumber}
             truncateSql={truncateSql}
             formatDateTime={formatDateTime}
@@ -401,45 +427,87 @@ export default function AnalyseurSQL() {
       <div style={{ height: 16 }} />
 
       <SectionCard>
-        <div style={styles.rightPanelHeader}>
-          <div style={styles.panelHeaderTitle}>Plan d'exécution Oracle (DBMS_XPLAN)</div>
-          <div style={styles.planHeaderActions}>
-            <div style={styles.planMeta}>
-              <span>SQL_ID</span>
-              <strong>{selectedScript?.sql_id || "—"}</strong>
-              <span>•</span>
-              <span>PHV</span>
-              <strong>{selectedPhv !== null ? formatNumber(selectedPhv) : "—"}</strong>
-            </div>
+        <div style={styles.tabsHeader}>
+          <button
+            type="button"
+            onClick={() => setActiveBottomTab("plan")}
+            style={{
+              ...styles.tabButton,
+              ...(activeBottomTab === "plan" ? styles.tabButtonActive : {}),
+            }}
+          >
+            Plan d'exécution
+          </button>
 
-            <button
-              type="button"
-              style={styles.copyButton}
-              onClick={handleCopyPlan}
-              disabled={!planText}
-            >
-              Copier le plan
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setActiveBottomTab("ai")}
+            style={{
+              ...styles.tabButton,
+              ...(activeBottomTab === "ai" ? styles.tabButtonActive : {}),
+            }}
+          >
+            Analyse IA
+          </button>
         </div>
 
         <div style={styles.separator} />
 
-        {selectedDbType !== "ORACLE" ? (
-          <InfoBox text="Le plan Oracle est disponible uniquement pour Oracle." />
-        ) : planTextLoading ? (
-          <InfoBox text="Chargement du plan texte..." />
-        ) : !selectedScript?.sql_id ? (
-          <InfoBox text="Sélectionnez une requête pour afficher son plan." />
-        ) : selectedPhv === null || selectedPhv === undefined ? (
-          <InfoBox text="Sélectionnez un PHV pour afficher le plan." />
-        ) : !planText ? (
-          <InfoBox text="Aucun plan DBMS_XPLAN retourné pour ce PHV." />
-        ) : (
+        {activeBottomTab === "plan" ? (
           <>
-            <div style={styles.subPanelTitle}>Plan sélectionné</div>
-            <pre style={styles.planTextBlock}>{planText}</pre>
+            <div style={styles.rightPanelHeader}>
+              <div style={styles.panelHeaderTitle}>
+                Plan d'exécution Oracle (DBMS_XPLAN)
+              </div>
+
+              <div style={styles.planHeaderActions}>
+                <div style={styles.planMeta}>
+                  <span>SQL_ID</span>
+                  <strong>{selectedScript?.sql_id || "—"}</strong>
+                  <span>•</span>
+                  <span>PHV</span>
+                  <strong>
+                    {selectedPhv !== null ? formatNumber(selectedPhv) : "—"}
+                  </strong>
+                </div>
+
+                <button
+                  type="button"
+                  style={styles.copyButton}
+                  onClick={handleCopyPlan}
+                  disabled={!planText}
+                >
+                  Copier le plan
+                </button>
+              </div>
+            </div>
+
+            <div style={styles.separator} />
+
+            {selectedDbType !== "ORACLE" ? (
+              <InfoBox text="Le plan Oracle est disponible uniquement pour Oracle." />
+            ) : planTextLoading ? (
+              <InfoBox text="Chargement du plan texte..." />
+            ) : !selectedScript?.sql_id ? (
+              <InfoBox text="Sélectionnez une requête pour afficher son plan." />
+            ) : selectedPhv === null || selectedPhv === undefined ? (
+              <InfoBox text="Sélectionnez un PHV pour afficher le plan." />
+            ) : !planText ? (
+              <InfoBox text="Aucun plan DBMS_XPLAN retourné pour ce PHV." />
+            ) : (
+              <>
+                <div style={styles.subPanelTitle}>Plan sélectionné</div>
+                <pre style={styles.planTextBlock}>{planText}</pre>
+              </>
+            )}
           </>
+        ) : (
+          <AiAnalysisPanel
+            selectedScript={selectedScript}
+            selectedPhv={selectedPhv}
+            planText={planText}
+            fetchPlanForPhv={fetchPlanForPhv}
+          />
         )}
       </SectionCard>
     </div>
@@ -557,7 +625,8 @@ function TopQueryTable({
                   <span
                     style={{
                       ...styles.schemaBadge,
-                      ...(String(row.parsing_schema_name || "").toUpperCase() === "DBMON"
+                      ...(String(row.parsing_schema_name || "").toUpperCase() ===
+                      "DBMON"
                         ? styles.schemaBadgeBlue
                         : styles.schemaBadgeGray),
                     }}
@@ -700,6 +769,28 @@ const styles = {
     fontWeight: 900,
     color: "#1f3b7a",
     marginBottom: 14,
+  },
+  tabsHeader: {
+    display: "flex",
+    gap: 10,
+    alignItems: "center",
+    flexWrap: "wrap",
+    marginBottom: 14,
+  },
+  tabButton: {
+    border: "1px solid #d9e2f2",
+    background: "#ffffff",
+    color: "#5670a8",
+    borderRadius: 12,
+    padding: "0.75rem 1.1rem",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  tabButtonActive: {
+    background: "#2563eb",
+    color: "#ffffff",
+    border: "1px solid #2563eb",
+    boxShadow: "0 8px 18px rgba(37,99,235,0.18)",
   },
   rightPanelHeader: {
     display: "flex",

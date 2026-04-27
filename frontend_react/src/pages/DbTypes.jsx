@@ -7,7 +7,6 @@ export default function DbTypes() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState({ type: "", text: "" });
-
   const [deleteItem, setDeleteItem] = useState(null);
 
   const emptyForm = {
@@ -33,11 +32,7 @@ export default function DbTypes() {
   async function apiGet(endpoint, defaultValue = null) {
     const res = await fetch(`${API_BASE}${endpoint}`);
     const result = await parseJsonSafe(res);
-
-    if (!res.ok) {
-      throw new Error(result?.detail || "Erreur GET");
-    }
-
+    if (!res.ok) throw new Error(result?.detail || "Erreur GET");
     return result ?? defaultValue;
   }
 
@@ -47,13 +42,8 @@ export default function DbTypes() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-
     const result = await parseJsonSafe(res);
-
-    if (!res.ok) {
-      throw new Error(result?.detail || "Erreur POST");
-    }
-
+    if (!res.ok) throw new Error(result?.detail || "Erreur POST");
     return result;
   }
 
@@ -63,34 +53,22 @@ export default function DbTypes() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-
     const result = await parseJsonSafe(res);
-
-    if (!res.ok) {
-      throw new Error(result?.detail || "Erreur PUT");
-    }
-
+    if (!res.ok) throw new Error(result?.detail || "Erreur PUT");
     return result;
   }
 
   async function apiDelete(endpoint) {
-    const res = await fetch(`${API_BASE}${endpoint}`, {
-      method: "DELETE",
-    });
-
+    const res = await fetch(`${API_BASE}${endpoint}`, { method: "DELETE" });
     const result = await parseJsonSafe(res);
-
-    if (!res.ok) {
-      throw new Error(result?.detail || "Erreur DELETE");
-    }
-
+    if (!res.ok) throw new Error(result?.detail || "Erreur DELETE");
     return result ?? true;
   }
 
   async function loadDbTypes(showRefreshMessage = false) {
     try {
       setLoading(true);
-      const result = await apiGet("/db-types/", []);
+      const result = await apiGet("/db-types/?include_inactive=false", []);
       setData(Array.isArray(result) ? result : []);
 
       if (showRefreshMessage) {
@@ -113,9 +91,7 @@ export default function DbTypes() {
 
   useEffect(() => {
     if (!message.text) return;
-    const timer = setTimeout(() => {
-      setMessage({ type: "", text: "" });
-    }, 3500);
+    const timer = setTimeout(() => setMessage({ type: "", text: "" }), 3500);
     return () => clearTimeout(timer);
   }, [message]);
 
@@ -126,17 +102,9 @@ export default function DbTypes() {
 
   function badgeStatus(status) {
     const s = String(status || "").toUpperCase();
-
-    if (s === "ACTIVE") {
-      return <span style={styles.badgeSuccess}>ACTIVE</span>;
-    }
-    if (s === "INACTIVE") {
-      return <span style={styles.badgeError}>INACTIVE</span>;
-    }
-    if (s === "BETA") {
-      return <span style={styles.badgeWarning}>BETA</span>;
-    }
-
+    if (s === "ACTIVE") return <span style={styles.badgeSuccess}>ACTIVE</span>;
+    if (s === "INACTIVE") return <span style={styles.badgeError}>INACTIVE</span>;
+    if (s === "BETA") return <span style={styles.badgeWarning}>BETA</span>;
     return <span style={styles.badgeInfo}>{s || "—"}</span>;
   }
 
@@ -151,7 +119,6 @@ export default function DbTypes() {
       status: String(item.status || "ACTIVE").toUpperCase(),
       description: item.description || "",
     });
-
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -184,11 +151,7 @@ export default function DbTypes() {
     } catch (e) {
       setMessage({
         type: "error",
-        text:
-          e.message ||
-          (editId
-            ? "Erreur lors de la modification."
-            : "Erreur lors de la création."),
+        text: e.message || "Erreur lors de l’enregistrement.",
       });
     }
   }
@@ -197,12 +160,16 @@ export default function DbTypes() {
     if (!deleteItem) return;
 
     try {
-      await apiDelete(`/db-types/${deleteItem.db_type_id}?soft=false`);
-      setMessage({ type: "success", text: "Type BD supprimé ✅" });
+      const result = await apiDelete(
+        `/db-types/${deleteItem.db_type_id}?soft=false`
+      );
 
-      if (editId === deleteItem.db_type_id) {
-        resetForm();
-      }
+      setMessage({
+        type: "success",
+        text: result?.message || "Type BD supprimé ✅",
+      });
+
+      if (editId === deleteItem.db_type_id) resetForm();
 
       setDeleteItem(null);
       await loadDbTypes();
@@ -216,7 +183,6 @@ export default function DbTypes() {
 
   const filteredData = useMemo(() => {
     const result = Array.isArray(data) ? data : [];
-
     if (!search.trim()) return result;
 
     const s = search.toLowerCase().trim();
@@ -240,13 +206,13 @@ export default function DbTypes() {
         subtitle="Référentiel des SGBD supportés par le monitoring"
       />
 
-      {message.text ? (
+      {message.text && (
         <div style={{ marginBottom: 16 }}>
           {message.type === "success" && <SuccessBox text={message.text} />}
           {message.type === "error" && <ErrorBox text={message.text} />}
           {message.type === "warning" && <WarningBox text={message.text} />}
         </div>
-      ) : null}
+      )}
 
       <div style={styles.topActions}>
         <input
@@ -256,16 +222,14 @@ export default function DbTypes() {
           placeholder="🔎 Rechercher Oracle, PostgreSQL, driver..."
         />
 
-        <button
-          style={styles.secondaryButton}
-          onClick={() => loadDbTypes(true)}
-        >
+        <button style={styles.secondaryButton} onClick={() => loadDbTypes(true)}>
           Rafraîchir
         </button>
       </div>
 
       <SectionCard>
         <SectionTitle text={editId ? "MODIFIER UN TYPE BD" : "AJOUTER UN TYPE BD"} />
+
         <div style={styles.helperText}>
           Le code doit être unique. Utilise cette section pour ajouter ou modifier un SGBD.
         </div>
@@ -352,7 +316,7 @@ export default function DbTypes() {
             Réinitialiser
           </button>
 
-          {editId ? (
+          {editId && (
             <button
               style={styles.dangerButton}
               onClick={() => {
@@ -362,7 +326,7 @@ export default function DbTypes() {
             >
               Supprimer
             </button>
-          ) : null}
+          )}
         </div>
       </SectionCard>
 
@@ -396,10 +360,7 @@ export default function DbTypes() {
               ...item,
               actions: (
                 <div style={styles.tableActions}>
-                  <button
-                    style={styles.tableEditButton}
-                    onClick={() => openEdit(item)}
-                  >
+                  <button style={styles.tableEditButton} onClick={() => openEdit(item)}>
                     Modifier
                   </button>
                   <button
@@ -424,14 +385,11 @@ export default function DbTypes() {
         <Modal title="Supprimer le type BD" onClose={() => setDeleteItem(null)}>
           <div style={styles.deleteBox}>
             Vous allez supprimer <b>{deleteItem.name}</b> (ID{" "}
-            {deleteItem.db_type_id}). Cette action est irréversible.
+            {deleteItem.db_type_id}). Si ce type est utilisé, il sera désactivé.
           </div>
 
           <div style={styles.buttonRow}>
-            <button
-              style={styles.secondaryButton}
-              onClick={() => setDeleteItem(null)}
-            >
+            <button style={styles.secondaryButton} onClick={() => setDeleteItem(null)}>
               Annuler
             </button>
             <button style={styles.dangerButton} onClick={handleDeleteConfirm}>
@@ -531,7 +489,6 @@ const styles = {
     minHeight: "100vh",
     color: "#0d1b2a",
   },
-
   pageTitle: {
     fontSize: 30,
     fontWeight: 900,
@@ -539,12 +496,7 @@ const styles = {
     marginBottom: 6,
     letterSpacing: "-0.02em",
   },
-
-  pageSubtitle: {
-    fontSize: 14,
-    color: "#526077",
-  },
-
+  pageSubtitle: { fontSize: 14, color: "#526077" },
   topActions: {
     display: "flex",
     gap: 12,
@@ -552,7 +504,6 @@ const styles = {
     marginBottom: 18,
     flexWrap: "wrap",
   },
-
   searchInput: {
     width: 360,
     maxWidth: "100%",
@@ -563,7 +514,6 @@ const styles = {
     fontSize: 14,
     boxSizing: "border-box",
   },
-
   primaryButton: {
     border: "1.5px solid #2563eb",
     background: "#2563eb",
@@ -574,7 +524,6 @@ const styles = {
     fontSize: 14,
     cursor: "pointer",
   },
-
   secondaryButton: {
     border: "1.5px solid #e4e9f2",
     background: "#fff",
@@ -585,7 +534,6 @@ const styles = {
     fontSize: 14,
     cursor: "pointer",
   },
-
   dangerButton: {
     border: "1.5px solid #fecdd3",
     background: "#fff1f2",
@@ -596,7 +544,6 @@ const styles = {
     fontSize: 14,
     cursor: "pointer",
   },
-
   card: {
     background: "#ffffff",
     border: "1px solid #e4e9f2",
@@ -604,7 +551,6 @@ const styles = {
     padding: 20,
     boxShadow: "0 2px 8px rgba(13,27,42,0.08)",
   },
-
   sectionTitle: {
     fontSize: "0.72rem",
     fontWeight: 800,
@@ -615,26 +561,18 @@ const styles = {
     borderBottom: "1px solid #e4e9f2",
     marginBottom: 14,
   },
-
-  helperText: {
-    fontSize: 14,
-    color: "#7b8aa3",
-    marginBottom: 18,
-  },
-
+  helperText: { fontSize: 14, color: "#7b8aa3", marginBottom: 18 },
   formGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
     gap: 16,
   },
-
   label: {
     fontSize: "0.9rem",
     fontWeight: 600,
     color: "#526077",
     marginBottom: 8,
   },
-
   input: {
     width: "100%",
     padding: "0.9rem 1rem",
@@ -644,7 +582,6 @@ const styles = {
     fontSize: 14,
     boxSizing: "border-box",
   },
-
   select: {
     width: "100%",
     padding: "0.9rem 1rem",
@@ -654,7 +591,6 @@ const styles = {
     fontSize: 14,
     boxSizing: "border-box",
   },
-
   textarea: {
     width: "100%",
     padding: "1rem",
@@ -666,7 +602,6 @@ const styles = {
     boxSizing: "border-box",
     resize: "vertical",
   },
-
   previewBox: {
     minHeight: 48,
     display: "flex",
@@ -677,14 +612,7 @@ const styles = {
     background: "#fff",
     boxSizing: "border-box",
   },
-
-  buttonRow: {
-    display: "flex",
-    gap: 12,
-    marginTop: 18,
-    flexWrap: "wrap",
-  },
-
+  buttonRow: { display: "flex", gap: 12, marginTop: 18, flexWrap: "wrap" },
   badgeSuccess: {
     background: "#f0fdf4",
     color: "#166534",
@@ -695,7 +623,6 @@ const styles = {
     fontWeight: 700,
     display: "inline-block",
   },
-
   badgeError: {
     background: "#fff1f2",
     color: "#9f1239",
@@ -706,7 +633,6 @@ const styles = {
     fontWeight: 700,
     display: "inline-block",
   },
-
   badgeWarning: {
     background: "#fffbeb",
     color: "#92400e",
@@ -717,7 +643,6 @@ const styles = {
     fontWeight: 700,
     display: "inline-block",
   },
-
   badgeInfo: {
     background: "#eff6ff",
     color: "#1d4ed8",
@@ -728,7 +653,6 @@ const styles = {
     fontWeight: 700,
     display: "inline-block",
   },
-
   modalOverlay: {
     position: "fixed",
     inset: 0,
@@ -739,7 +663,6 @@ const styles = {
     zIndex: 1000,
     padding: 20,
   },
-
   modal: {
     width: "100%",
     maxWidth: 560,
@@ -750,14 +673,12 @@ const styles = {
     padding: 22,
     position: "relative",
   },
-
   modalTitle: {
     fontSize: 20,
     fontWeight: 900,
     color: "#0d1b2a",
     marginBottom: 16,
   },
-
   modalClose: {
     position: "absolute",
     top: 12,
@@ -768,7 +689,6 @@ const styles = {
     cursor: "pointer",
     color: "#64748b",
   },
-
   deleteBox: {
     background: "#fff1f2",
     border: "1px solid #fecdd3",
@@ -779,20 +699,13 @@ const styles = {
     color: "#9f1239",
     lineHeight: 1.5,
   },
-
   tableWrap: {
     overflowX: "auto",
     borderRadius: 12,
     overflow: "hidden",
     border: "1px solid #e4e9f2",
   },
-
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-    background: "#fff",
-  },
-
+  table: { width: "100%", borderCollapse: "collapse", background: "#fff" },
   th: {
     background: "#f1f5fb",
     fontSize: "0.72rem",
@@ -805,7 +718,6 @@ const styles = {
     textAlign: "left",
     whiteSpace: "nowrap",
   },
-
   td: {
     fontSize: "0.84rem",
     color: "#0d1b2a",
@@ -814,21 +726,9 @@ const styles = {
     textAlign: "left",
     verticalAlign: "middle",
   },
-
-  rowEven: {
-    background: "#ffffff",
-  },
-
-  rowOdd: {
-    background: "#fbfdff",
-  },
-
-  tableActions: {
-    display: "flex",
-    gap: 8,
-    flexWrap: "wrap",
-  },
-
+  rowEven: { background: "#ffffff" },
+  rowOdd: { background: "#fbfdff" },
+  tableActions: { display: "flex", gap: 8, flexWrap: "wrap" },
   tableEditButton: {
     border: "1px solid #dbe5f3",
     background: "#fff",
@@ -839,7 +739,6 @@ const styles = {
     fontWeight: 700,
     cursor: "pointer",
   },
-
   tableDeleteButton: {
     border: "1px solid #fecdd3",
     background: "#fff1f2",
@@ -850,7 +749,6 @@ const styles = {
     fontWeight: 700,
     cursor: "pointer",
   },
-
   successBox: {
     background: "#f0fdf4",
     border: "1px solid #bbf7d0",
@@ -859,7 +757,6 @@ const styles = {
     color: "#166534",
     fontWeight: 800,
   },
-
   errorBox: {
     background: "#fff1f2",
     border: "1px solid #fecdd3",
@@ -868,7 +765,6 @@ const styles = {
     color: "#9f1239",
     fontWeight: 800,
   },
-
   warningBox: {
     background: "#fffbeb",
     border: "1px solid #fde68a",
@@ -877,7 +773,6 @@ const styles = {
     color: "#92400e",
     fontWeight: 800,
   },
-
   infoBox: {
     background: "#eff6ff",
     border: "1px solid #bfdbfe",
@@ -886,7 +781,6 @@ const styles = {
     color: "#1d4ed8",
     fontWeight: 700,
   },
-
   emptyState: {
     textAlign: "center",
     padding: "3rem",
@@ -894,20 +788,6 @@ const styles = {
     border: "1px dashed #cbd5e1",
     borderRadius: 12,
   },
-
-  emptyIcon: {
-    fontSize: "2rem",
-    marginBottom: 8,
-  },
-
-  emptyTitle: {
-    fontWeight: 600,
-    color: "#64748b",
-  },
-
-  emptySub: {
-    fontSize: "0.85rem",
-    color: "#94a3b8",
-    marginTop: 4,
-  },
+  emptyTitle: { fontWeight: 600, color: "#64748b" },
+  emptySub: { fontSize: "0.85rem", color: "#94a3b8", marginTop: 4 },
 };

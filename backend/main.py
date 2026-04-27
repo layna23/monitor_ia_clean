@@ -2,6 +2,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
+# 🔥 IMPORTANT (chargement .env)
+from pathlib import Path
+from dotenv import load_dotenv
+
+BASE_DIR = Path(__file__).resolve().parent
+ENV_PATH = BASE_DIR / "config" / ".env"
+load_dotenv(dotenv_path=ENV_PATH)
+
+# Routers
 from backend.router.role import router as role_router
 from backend.router.users import router as user_router
 from backend.router.db_types import router as db_types_router
@@ -22,6 +31,7 @@ from backend.router.ai_router import router as ai_router
 
 app = FastAPI(title="DB Monitor IA Backend")
 
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -30,6 +40,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Routers
 app.include_router(role_router)
 app.include_router(user_router)
 app.include_router(db_types_router)
@@ -48,6 +59,7 @@ app.include_router(sql_analyzer_router)
 app.include_router(oracle_sessions_router)
 app.include_router(ai_router)
 
+# Monitoring
 Instrumentator().instrument(app).expose(app)
 
 
