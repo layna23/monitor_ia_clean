@@ -64,35 +64,15 @@ function getMetricSeverity(metric) {
 function getMetricStatusStyle(status) {
   switch (normalizeSeverity(status)) {
     case "CRITICAL":
-      return {
-        bg: "#fff1f2",
-        color: "#9f1239",
-        border: "#fecdd3",
-      };
+      return { bg: "#fff1f2", color: "#9f1239", border: "#fecdd3" };
     case "WARNING":
-      return {
-        bg: "#fffbeb",
-        color: "#92400e",
-        border: "#fde68a",
-      };
+      return { bg: "#fffbeb", color: "#92400e", border: "#fde68a" };
     case "OK":
-      return {
-        bg: "#f0fdf4",
-        color: "#166534",
-        border: "#bbf7d0",
-      };
+      return { bg: "#f0fdf4", color: "#166534", border: "#bbf7d0" };
     case "INFO":
-      return {
-        bg: "#eff6ff",
-        color: "#1e40af",
-        border: "#bfdbfe",
-      };
+      return { bg: "#eff6ff", color: "#1e40af", border: "#bfdbfe" };
     default:
-      return {
-        bg: "#f8fafc",
-        color: "#475569",
-        border: "#e2e8f0",
-      };
+      return { bg: "#f8fafc", color: "#475569", border: "#e2e8f0" };
   }
 }
 
@@ -120,14 +100,9 @@ function Card({ title, subtitle, children }) {
   );
 }
 
-function InfoMini({ label, value, fullWidth = false }) {
+function InfoMini({ label, value }) {
   return (
-    <div
-      style={{
-        ...styles.infoMini,
-        gridColumn: fullWidth ? "1 / -1" : "auto",
-      }}
-    >
+    <div style={styles.infoMini}>
       <div style={styles.infoMiniLabel}>{label}</div>
       <div style={styles.infoMiniValue}>{value}</div>
     </div>
@@ -189,6 +164,7 @@ function SingleMetricChartCard({ title, metric, chartData }) {
             <Line
               type="monotone"
               dataKey="value"
+              name={title}
               stroke="#2563eb"
               strokeWidth={2.5}
               dot={{ r: 4, strokeWidth: 2, fill: "#ffffff" }}
@@ -198,6 +174,7 @@ function SingleMetricChartCard({ title, metric, chartData }) {
             <Line
               type="monotone"
               dataKey="warn_threshold"
+              name="Warning"
               stroke="#f59e0b"
               strokeWidth={1.5}
               dot={false}
@@ -206,6 +183,7 @@ function SingleMetricChartCard({ title, metric, chartData }) {
             <Line
               type="monotone"
               dataKey="crit_threshold"
+              name="Critique"
               stroke="#ef4444"
               strokeWidth={1.5}
               dot={false}
@@ -225,6 +203,33 @@ function MetricTag({ text, variant = "critical" }) {
       : styles.alertMetricTagCritical;
 
   return <span style={style}>{text}</span>;
+}
+
+function GlobalPerformanceTooltip({ active, payload, label }) {
+  if (!active || !payload || payload.length === 0) return null;
+
+  const row = payload[0]?.payload || {};
+
+  return (
+    <div style={styles.customTooltip}>
+      <div style={styles.tooltipDate}>Date : {label}</div>
+
+      <div style={{ ...styles.tooltipLine, color: "#ef4444" }}>
+        <span style={{ ...styles.tooltipDot, background: "#ef4444" }} />
+        CPU moyen : {row.cpu_avg ?? "—"} %
+      </div>
+
+      <div style={{ ...styles.tooltipLine, color: "#7c3aed" }}>
+        <span style={{ ...styles.tooltipDot, background: "#7c3aed" }} />
+        RAM moyenne : {row.ram_avg ?? "—"} MB
+      </div>
+
+      <div style={{ ...styles.tooltipLine, color: "#2563eb" }}>
+        <span style={{ ...styles.tooltipDot, background: "#2563eb" }} />
+        DB Time moyen : {row.db_time_avg ?? "—"} ms
+      </div>
+    </div>
+  );
 }
 
 function GlobalPerformanceChart({ data }) {
@@ -291,33 +296,7 @@ function GlobalPerformanceChart({ data }) {
             tickFormatter={(value) => `${value}%`}
           />
 
-          <Tooltip
-            contentStyle={{
-              background: "#ffffff",
-              border: "1px solid #e2e8f0",
-              borderRadius: 12,
-              fontSize: 12,
-              boxShadow: "0 8px 24px rgba(15,23,42,0.08)",
-            }}
-            formatter={(value, name, props) => {
-              const payload = props?.payload || {};
-
-              if (name === "cpu_normalized") {
-                return [`${payload.cpu_avg ?? "—"} % (${value}%)`, "CPU moyen"];
-              }
-
-              if (name === "ram_normalized") {
-                return [`${payload.ram_avg ?? "—"} MB (${value}%)`, "RAM moyenne"];
-              }
-
-              if (name === "db_time_normalized") {
-                return [`${payload.db_time_avg ?? "—"} ms (${value}%)`, "DB Time moyen"];
-              }
-
-              return [value, name];
-            }}
-            labelFormatter={(label) => `Date : ${label}`}
-          />
+          <Tooltip content={<GlobalPerformanceTooltip />} />
 
           <Legend />
 
@@ -554,6 +533,8 @@ export default function Accueil() {
 
         if (!collectedAt || Number.isNaN(numericValue)) return;
 
+        const label = formatHistoryLabel(collectedAt);
+
         const isCpu = code === "CPU_USAGE";
         const isRam =
           code === "RAM_USAGE" ||
@@ -564,9 +545,9 @@ export default function Accueil() {
 
         if (!isCpu && !isRam && !isDbTime) return;
 
-        if (!merged[collectedAt]) {
-          merged[collectedAt] = {
-            label: formatHistoryLabel(collectedAt),
+        if (!merged[label]) {
+          merged[label] = {
+            label,
             sortKey: new Date(collectedAt).getTime() || 0,
             cpu_values: [],
             ram_values: [],
@@ -574,9 +555,9 @@ export default function Accueil() {
           };
         }
 
-        if (isCpu) merged[collectedAt].cpu_values.push(numericValue);
-        if (isRam) merged[collectedAt].ram_values.push(numericValue);
-        if (isDbTime) merged[collectedAt].db_time_values.push(numericValue);
+        if (isCpu) merged[label].cpu_values.push(numericValue);
+        if (isRam) merged[label].ram_values.push(numericValue);
+        if (isDbTime) merged[label].db_time_values.push(numericValue);
       });
     });
 
@@ -584,6 +565,33 @@ export default function Accueil() {
       if (!arr.length) return null;
       return Number((arr.reduce((sum, v) => sum + v, 0) / arr.length).toFixed(2));
     };
+
+    let result = Object.values(merged)
+      .map((item) => ({
+        label: item.label,
+        sortKey: item.sortKey,
+        cpu_avg: avg(item.cpu_values),
+        ram_avg: avg(item.ram_values),
+        db_time_avg: avg(item.db_time_values),
+      }))
+      .sort((a, b) => a.sortKey - b.sortKey);
+
+    let lastCpu = null;
+    let lastRam = null;
+    let lastDbTime = null;
+
+    result = result.map((item) => {
+      if (item.cpu_avg !== null) lastCpu = item.cpu_avg;
+      if (item.ram_avg !== null) lastRam = item.ram_avg;
+      if (item.db_time_avg !== null) lastDbTime = item.db_time_avg;
+
+      return {
+        ...item,
+        cpu_avg: item.cpu_avg !== null ? item.cpu_avg : lastCpu,
+        ram_avg: item.ram_avg !== null ? item.ram_avg : lastRam,
+        db_time_avg: item.db_time_avg !== null ? item.db_time_avg : lastDbTime,
+      };
+    });
 
     const normalizeSeries = (items, key) => {
       const values = items
@@ -616,16 +624,6 @@ export default function Accueil() {
         };
       });
     };
-
-    let result = Object.values(merged)
-      .map((item) => ({
-        label: item.label,
-        sortKey: item.sortKey,
-        cpu_avg: avg(item.cpu_values),
-        ram_avg: avg(item.ram_values),
-        db_time_avg: avg(item.db_time_values),
-      }))
-      .sort((a, b) => a.sortKey - b.sortKey);
 
     result = normalizeSeries(result, "cpu_avg");
     result = normalizeSeries(result, "ram_avg");
@@ -718,9 +716,7 @@ export default function Accueil() {
           subtitle="CPU, RAM et DB Time pour l’ensemble des bases Oracle collectées"
         >
           {globalHistoryLoading ? (
-            <div style={styles.loadingInline}>
-              Chargement du graphique global...
-            </div>
+            <div style={styles.loadingInline}>Chargement du graphique global...</div>
           ) : (
             <GlobalPerformanceChart data={globalPerformanceData} />
           )}
@@ -773,10 +769,7 @@ export default function Accueil() {
                 label="Port"
                 value={String(selectedDbOverview?.port || selectedDb?.port || "—")}
               />
-              <InfoMini
-                label="Service"
-                value={selectedDbOverview?.service_name || "—"}
-              />
+              <InfoMini label="Service" value={selectedDbOverview?.service_name || "—"} />
               <InfoMini label="SID" value={selectedDbOverview?.sid || "—"} />
               <InfoMini
                 label="Dernière collecte"
@@ -816,11 +809,7 @@ export default function Accueil() {
                     <span style={styles.compactEmpty}>Aucune</span>
                   ) : (
                     selectedDbCriticalMetrics.map((metric) => (
-                      <MetricTag
-                        key={`critical-${metric}`}
-                        text={metric}
-                        variant="critical"
-                      />
+                      <MetricTag key={`critical-${metric}`} text={metric} />
                     ))
                   )}
                 </div>
@@ -901,12 +890,8 @@ export default function Accueil() {
                             {sev}
                           </span>
                         </td>
-                        <td style={styles.metricsTd}>
-                          {metric.warn_threshold ?? "—"}
-                        </td>
-                        <td style={styles.metricsTd}>
-                          {metric.crit_threshold ?? "—"}
-                        </td>
+                        <td style={styles.metricsTd}>{metric.warn_threshold ?? "—"}</td>
+                        <td style={styles.metricsTd}>{metric.crit_threshold ?? "—"}</td>
                         <td style={styles.metricsTd}>
                           {metric.frequency_sec ? `${metric.frequency_sec}s` : "—"}
                         </td>
@@ -1329,5 +1314,37 @@ const styles = {
     fontSize: 13,
     color: "#64748b",
     lineHeight: 1.6,
+  },
+
+  customTooltip: {
+    background: "#ffffff",
+    border: "1px solid #e2e8f0",
+    borderRadius: 14,
+    padding: "14px 16px",
+    boxShadow: "0 12px 30px rgba(15,23,42,0.12)",
+    minWidth: 230,
+  },
+
+  tooltipDate: {
+    fontSize: 13,
+    fontWeight: 800,
+    color: "#334155",
+    marginBottom: 12,
+  },
+
+  tooltipLine: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    fontSize: 13,
+    fontWeight: 600,
+    marginTop: 8,
+  },
+
+  tooltipDot: {
+    width: 10,
+    height: 10,
+    borderRadius: "50%",
+    display: "inline-block",
   },
 };

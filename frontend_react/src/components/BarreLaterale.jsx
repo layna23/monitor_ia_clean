@@ -21,8 +21,7 @@ const menuGroups = [
       { label: "Vue globale des bases", path: "/vue-globale-bd" },
       { label: "Alertes", path: "/alertes" },
       { label: "Analyseur SQL", path: "/analyseur-sql" },
-
-      // 👉 BOUTON PREFECT
+      { label: "Analyse IA", path: "/ai-analysis" },
       {
         label: "Prefect UI",
         path: "http://127.0.0.1:4200",
@@ -58,7 +57,6 @@ export default function BarreLaterale() {
             {group.group && <div style={styles.groupLabel}>{group.group}</div>}
 
             {group.items.map((item) => {
-              // 🔵 LIEN EXTERNE (PREFECT)
               if (item.external) {
                 return (
                   <a
@@ -74,7 +72,6 @@ export default function BarreLaterale() {
                 );
               }
 
-              // 🔵 LIEN NORMAL
               return (
                 <NavLink
                   key={item.path}
@@ -152,6 +149,8 @@ const styles = {
     flex: 1,
   },
 
+  groupBlock: {},
+
   groupLabel: {
     fontSize: 10,
     fontWeight: 800,
@@ -178,7 +177,6 @@ const styles = {
     fontWeight: 700,
   },
 
-  // 🔥 STYLE PREFECT
   prefectLink: {
     display: "flex",
     justifyContent: "space-between",

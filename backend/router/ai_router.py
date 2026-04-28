@@ -1,7 +1,11 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy.orm import Session
+from sqlalchemy import text
 import os
 import json
 import requests
+
+from backend.database.session import get_db
 
 router = APIRouter(prefix="/ai", tags=["AI"])
 
@@ -50,6 +54,258 @@ def extract_best_phv(analysis: str):
         return analysis.split(marker)[-1].strip().splitlines()[0].strip()
 
     return None
+
+
+def get_db_context(db: Session, db_id: int):
+    db_row = db.execute(
+        text(
+            """
+            SELECT
+                DB_ID,
+                DB_NAME,
+                DB_TYPE_ID,
+                HOST,
+                PORT,
+                SERVICE_NAME,
+                SID,
+                USERNAME,
+                IS_ACTIVE,
+                LAST_COLLECT_AT,
+                LAST_STATUS,
+                LAST_ERROR,
+                CREATED_AT
+            FROM DBMON.TARGET_DBS
+            WHERE DB_ID = :db_id
+            """
+        ),
+        {"db_id": db_id},
+    ).mappings().first()
+
+    if not db_row:
+        raise HTTPException(status_code=404, detail="Base introuvable")
+
+    latest_metrics = db.execute(
+        text(
+            """
+            SELECT *
+            FROM (
+                SELECT
+                    mv.DB_ID,
+                    mv.METRIC_ID,
+                    md.METRIC_CODE,
+                    md.UNIT,
+                    md.CATEGORY,
+                    md.WARN_THRESHOLD,
+                    md.CRIT_THRESHOLD,
+                    mv.VALUE_NUMBER,
+                    mv.VALUE_TEXT,
+                    mv.SEVERITY,
+                    mv.COLLECTED_AT,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY mv.METRIC_ID
+                        ORDER BY mv.COLLECTED_AT DESC
+                    ) AS RN
+                FROM DBMON.METRIC_VALUES mv
+                LEFT JOIN DBMON.METRIC_DEFS md
+                    ON md.METRIC_ID = mv.METRIC_ID
+                WHERE mv.DB_ID = :db_id
+            )
+            WHERE RN = 1
+            """
+        ),
+        {"db_id": db_id},
+    ).mappings().all()
+
+    history_metrics = db.execute(
+        text(
+            """
+            SELECT *
+            FROM (
+                SELECT
+                    mv.DB_ID,
+                    md.METRIC_CODE,
+                    md.UNIT,
+                    md.CATEGORY,
+                    mv.VALUE_NUMBER,
+                    mv.VALUE_TEXT,
+                    mv.SEVERITY,
+                    mv.COLLECTED_AT
+                FROM DBMON.METRIC_VALUES mv
+                LEFT JOIN DBMON.METRIC_DEFS md
+                    ON md.METRIC_ID = mv.METRIC_ID
+                WHERE mv.DB_ID = :db_id
+                ORDER BY mv.COLLECTED_AT DESC
+            )
+            WHERE ROWNUM <= 40
+            """
+        ),
+        {"db_id": db_id},
+    ).mappings().all()
+
+    return {
+        "database": dict(db_row),
+        "latest_metrics": [dict(r) for r in latest_metrics],
+        "history_metrics": [dict(r) for r in history_metrics],
+    }
+
+
+@router.get("/playbooks")
+def list_playbooks():
+    return {
+        "playbooks": [
+            {
+                "code": "PLAYBOOK_RAM_HIGH",
+                "title": "Utilisation RAM élevée",
+                "description": "Identifier les sessions et requêtes qui consomment beaucoup de mémoire.",
+                "steps": [
+                    "Lister les sessions actives",
+                    "Vérifier les requêtes SQL les plus coûteuses",
+                    "Analyser PGA / SGA",
+                    "Proposer optimisation ou action manuelle"
+                ],
+                "requires_validation": True
+            },
+            {
+                "code": "PLAYBOOK_CPU_HIGH",
+                "title": "CPU élevé",
+                "description": "Identifier les sessions ou requêtes responsables de la charge CPU.",
+                "steps": [
+                    "Lire la métrique CPU",
+                    "Lister les sessions actives",
+                    "Identifier les SQL_ID les plus coûteux",
+                    "Analyser le plan d'exécution"
+                ],
+                "requires_validation": True
+            },
+            {
+                "code": "PLAYBOOK_DB_TIME_HIGH",
+                "title": "DB Time élevé",
+                "description": "Analyser les causes d'attente et les requêtes lentes.",
+                "steps": [
+                    "Vérifier DB Time",
+                    "Analyser les événements d'attente",
+                    "Identifier les requêtes SQL lentes",
+                    "Comparer les PHV si disponibles"
+                ],
+                "requires_validation": True
+            },
+            {
+                "code": "PLAYBOOK_LOCKS",
+                "title": "Locks ou sessions bloquées",
+                "description": "Identifier les sessions bloquantes et les objets verrouillés.",
+                "steps": [
+                    "Lister les objets verrouillés",
+                    "Identifier la session bloquante",
+                    "Afficher la requête SQL associée",
+                    "Demander validation avant action corrective"
+                ],
+                "requires_validation": True
+            },
+            {
+                "code": "PLAYBOOK_SESSIONS_HIGH",
+                "title": "Nombre de sessions élevé",
+                "description": "Analyser l'augmentation du nombre de sessions.",
+                "steps": [
+                    "Lister les sessions ouvertes",
+                    "Identifier les programmes connectés",
+                    "Détecter les sessions inactives",
+                    "Proposer nettoyage manuel"
+                ],
+                "requires_validation": True
+            },
+            {
+                "code": "PLAYBOOK_SQL_TUNING",
+                "title": "SQL tuning",
+                "description": "Analyser les requêtes SQL lentes ou coûteuses.",
+                "steps": [
+                    "Lister le top SQL",
+                    "Analyser le plan d'exécution",
+                    "Comparer les PHV",
+                    "Proposer index ou mise à jour des statistiques"
+                ],
+                "requires_validation": True
+            }
+        ]
+    }
+
+
+@router.post("/analyze-db/{db_id}")
+def analyze_database_with_ai(db_id: int, db: Session = Depends(get_db)):
+    context = get_db_context(db, db_id)
+
+    prompt = f"""
+Tu es un expert DBA Oracle et performance database.
+
+Analyse en profondeur les métriques d'une base Oracle.
+
+Données :
+{json.dumps(context, ensure_ascii=False, default=str)}
+
+Réponds uniquement en français.
+
+Structure obligatoirement la réponse comme ceci :
+
+=== Résumé global ===
+Donne un résumé clair de l’état global de la base.
+
+=== Analyse des métriques ===
+Analyse CPU, RAM, DB Time, sessions, locks, transactions.
+Explique les tendances et les anomalies.
+
+=== Problèmes détectés ===
+Liste les anomalies détectées (CPU élevé, DB Time élevé, sessions élevées, locks, etc).
+
+=== Incidents probables ===
+Anticipe les incidents possibles :
+- saturation CPU
+- blocage sessions
+- requêtes lentes
+- contention ressources
+
+=== Analyse des causes ===
+Explique les causes possibles :
+- requêtes SQL lourdes
+- manque d’index
+- statistiques obsolètes
+- surcharge système
+
+=== Actions recommandées ===
+Donne des actions concrètes :
+- requêtes SQL à vérifier
+- index à créer
+- stats à mettre à jour
+- sessions à analyser
+- plans d’exécution à vérifier
+
+=== Playbooks recommandés ===
+Si une anomalie est détectée, propose un ou plusieurs playbooks parmi cette liste :
+
+- PLAYBOOK_RAM_HIGH : Utilisation RAM élevée
+- PLAYBOOK_CPU_HIGH : Utilisation CPU élevée
+- PLAYBOOK_DB_TIME_HIGH : DB Time élevé
+- PLAYBOOK_LOCKS : Locks ou sessions bloquées
+- PLAYBOOK_SESSIONS_HIGH : Nombre de sessions élevé
+- PLAYBOOK_SQL_TUNING : Requêtes SQL lentes ou coûteuses
+
+Pour chaque playbook recommandé, donne :
+- le code du playbook
+- la raison
+- les étapes prévues
+- le niveau de risque LOW / MEDIUM / HIGH
+- préciser que la validation humaine est obligatoire avant exécution
+
+=== Conclusion finale ===
+Conclusion claire avec niveau de risque : OK / WARNING / CRITICAL
+"""
+
+    analysis = call_groq(prompt)
+
+    return {
+        "success": True,
+        "mode": "database_ai_analysis",
+        "db_id": db_id,
+        "analysis": analysis,
+    }
 
 
 @router.post("/analyze-sql")

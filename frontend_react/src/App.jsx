@@ -14,6 +14,7 @@ import ConfigBD from "./pages/ConfigBD";
 import DbTypes from "./pages/DbTypes";
 import TestDB from "./pages/TestDB";
 import DetailBase from "./pages/DetailBase";
+import AiAnalysis from "./pages/AiAnalysis";
 
 import MiseEnPage from "./components/MiseEnPage";
 
@@ -34,8 +35,10 @@ function App() {
         <Route path="/db-types" element={<DbTypes />} />
         <Route path="/test-db" element={<TestDB />} />
 
-        {/* ancienne route redirigée vers la nouvelle vue unique */}
-        <Route path="/bases-surveillees" element={<Navigate to="/vue-globale-bd" replace />} />
+        <Route
+          path="/bases-surveillees"
+          element={<Navigate to="/vue-globale-bd" replace />}
+        />
 
         <Route path="/configuration-metriques" element={<ConfigurationMetriques />} />
         <Route path="/alertes" element={<Alertes />} />
@@ -44,6 +47,8 @@ function App() {
         <Route path="/analyseur-sql" element={<AnalyseurSQL />} />
         <Route path="/vue-globale-bd" element={<VueGlobaleBD />} />
         <Route path="/bases/:id" element={<DetailBase />} />
+
+        <Route path="/ai-analysis" element={<AiAnalysis />} />
       </Routes>
     </MiseEnPage>
   );

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import DashboardHeader from "./components/dashboard/DashboardHeader";
 import DashboardFilters from "./components/dashboard/DashboardFilters";
 import DashboardMainCharts from "./components/dashboard/DashboardMainCharts";
-import DashboardSummary from "./components/dashboard/DashboardSummary";
 import DashboardCurrentValues from "./components/dashboard/DashboardCurrentValues";
 import DashboardRecentTable from "./components/dashboard/DashboardRecentTable";
 import DashboardOracleTopSql from "./components/dashboard/DashboardOracleTopSql";
@@ -379,57 +378,14 @@ export default function Dashboard() {
 
   const chartTitle = useMemo(() => {
     if (selectedDbIsOracle && selectedMetric === COMBINED_ORACLE_METRIC_KEY) {
-      return `${selectedDbName} - ${prettifyMetricLabel("ACTIVE_SESSIONS", metricDefs)} + ${prettifyMetricLabel("SESSION_COUNT", metricDefs)}`;
+      return `${selectedDbName} - ${prettifyMetricLabel(
+        "ACTIVE_SESSIONS",
+        metricDefs
+      )} + ${prettifyMetricLabel("SESSION_COUNT", metricDefs)}`;
     }
+
     return `${selectedDbName} - ${prettifyMetricLabel(selectedMetric, metricDefs)}`;
   }, [selectedDbIsOracle, selectedMetric, selectedDbName, metricDefs]);
-
-  const summaryCards = useMemo(() => {
-    const latestByMetric = {};
-    filteredMetricValuesSelectedDb.forEach((row) => {
-      latestByMetric[row.metric_code] = row.value_number_num;
-    });
-
-    if (selectedDbIsMysql) {
-      return [
-        {
-          label: prettifyMetricLabel("THREADS_CONNECTED", metricDefs),
-          value: latestByMetric.THREADS_CONNECTED ?? "-",
-        },
-        {
-          label: prettifyMetricLabel("THREADS_RUNNING", metricDefs),
-          value: latestByMetric.THREADS_RUNNING ?? "-",
-        },
-        {
-          label: prettifyMetricLabel("QUESTIONS", metricDefs),
-          value: latestByMetric.QUESTIONS ?? "-",
-        },
-        {
-          label: prettifyMetricLabel("SLOW_QUERIES", metricDefs),
-          value: latestByMetric.SLOW_QUERIES ?? "-",
-        },
-      ];
-    }
-
-    return [
-      {
-        label: prettifyMetricLabel("ACTIVE_SESSIONS", metricDefs),
-        value: latestByMetric.ACTIVE_SESSIONS ?? "-",
-      },
-      {
-        label: prettifyMetricLabel("TOTAL_SESSIONS", metricDefs),
-        value: latestByMetric.TOTAL_SESSIONS ?? latestByMetric.SESSION_COUNT ?? "-",
-      },
-      {
-        label: prettifyMetricLabel("ACTIVE_TRANSACTIONS", metricDefs),
-        value: latestByMetric.ACTIVE_TRANSACTIONS ?? "-",
-      },
-      {
-        label: prettifyMetricLabel("LOCKED_OBJECTS", metricDefs),
-        value: latestByMetric.LOCKED_OBJECTS ?? "-",
-      },
-    ];
-  }, [filteredMetricValuesSelectedDb, selectedDbIsMysql, metricDefs]);
 
   const latestMetricValuesChart = useMemo(() => {
     return (Array.isArray(latestMetrics) ? latestMetrics : [])
@@ -498,12 +454,6 @@ export default function Dashboard() {
           combinedOracleMetricKey={COMBINED_ORACLE_METRIC_KEY}
         />
       </div>
-
-      <DashboardSummary
-        summaryCards={summaryCards}
-        selectedDbIsMysql={selectedDbIsMysql}
-        selectedDbName={selectedDbName}
-      />
 
       <div style={{ height: 12 }} />
 
