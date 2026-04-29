@@ -1,6 +1,7 @@
 import logging
 
-from prefect import flow, task, get_run_logger, serve
+from prefect import flow, task, get_run_logger
+from prefect.artifacts import create_markdown_artifact, create_link_artifact
 
 from backend.database.session import SessionLocal
 from backend.models.db_type import DbType
@@ -27,10 +28,7 @@ def collect_db_category(category_name: str):
     category_name = normalize_category(category_name)
 
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    logger.info(
-        "[FLOW-START] CATEGORIE=%s",
-        category_name,
-    )
+    logger.info("[FLOW-START] CATEGORIE=%s", category_name)
 
     try:
         db_type_rows = app_db.query(DbType).all()
@@ -184,116 +182,100 @@ def collect_db_category(category_name: str):
 
         success_count = sum(1 for r in results if r.get("success"))
         failed_count = sum(1 for r in results if not r.get("success"))
-        skipped_count = 0
 
         logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        logger.info(
-            "[FLOW-END] CATEGORIE=%s",
-            category_name,
-        )
+        logger.info("[FLOW-END] CATEGORIE=%s", category_name)
         logger.info("[FLOW-END] total_lancées = %s", len(results))
         logger.info("[FLOW-END] success       = %s", success_count)
         logger.info("[FLOW-END] failed        = %s", failed_count)
-        logger.info("[FLOW-END] skipped       = %s", skipped_count)
 
         return results
 
     finally:
         app_db.close()
-        logger.info(
-            "[FLOW-END] Session fermée | CATEGORIE=%s",
-            category_name,
-        )
+        logger.info("[FLOW-END] Session fermée | CATEGORIE=%s", category_name)
 
 
-@task(name="collecte sessions")
-def collect_sessions_task():
+@task(name="01 - Initialisation collecte")
+def init_collect_task(category_name: str):
     logger = get_run_logger()
-    logger.info("[TASK-START] Sessions")
-    results = collect_db_category("SESSIONS")
-    logger.info("[TASK-END] Sessions | results=%s", len(results))
+    logger.info("[TASK-INIT] Préparation collecte | CATEGORIE=%s", category_name)
+    return normalize_category(category_name)
+
+
+@task(name="02 - Collecte catégorie")
+def collect_category_task(category_name: str):
+    logger = get_run_logger()
+    logger.info("[TASK-START] Collecte catégorie %s", category_name)
+
+    results = collect_db_category(category_name)
+
+    logger.info("[TASK-END] Collecte catégorie %s | results=%s", category_name, len(results))
     return results
 
 
-@task(name="collecte statut")
-def collect_statut_task():
+@task(name="03 - Finalisation collecte")
+def finish_collect_task(category_name: str, results: list):
     logger = get_run_logger()
-    logger.info("[TASK-START] Statut")
-    results = collect_db_category("STATUT")
-    logger.info("[TASK-END] Statut | results=%s", len(results))
-    return results
+
+    total = len(results)
+    success = sum(1 for r in results if r.get("success"))
+    failed = total - success
+
+    logger.info("[TASK-FINISH] %s | total=%s success=%s failed=%s", category_name, total, success, failed)
+
+    return {
+        "category": category_name,
+        "total": total,
+        "success": success,
+        "failed": failed,
+    }
 
 
-@task(name="collecte performance")
-def collect_performance_task():
-    logger = get_run_logger()
-    logger.info("[TASK-START] Performance")
-    results = collect_db_category("PERFORMANCE")
-    logger.info("[TASK-END] Performance | results=%s", len(results))
-    return results
+@task(name="04 - Artifact résumé collecte")
+def create_collect_artifact(category_name: str, results: list):
+    total = len(results)
+    success = sum(1 for r in results if r.get("success"))
+    failed = total - success
+
+    markdown = f"""
+# Résumé collecte {category_name}
+
+| Indicateur | Valeur |
+|---|---:|
+| Catégorie | {category_name} |
+| Total métriques lancées | {total} |
+| Succès | {success} |
+| Échecs | {failed} |
+"""
+
+    create_markdown_artifact(
+        key=f"resume-collecte-{category_name.lower()}",
+        markdown=markdown,
+        description=f"Résumé collecte {category_name}",
+    )
+
+    create_link_artifact(
+        key=f"dashboard-collecte-{category_name.lower()}",
+        link=f"http://127.0.0.1:5173/collecte?categorie={category_name}",
+        description=f"Dashboard frontend pour la collecte {category_name}",
+    )
 
 
-@task(name="collecte autres")
-def collect_autres_task():
-    logger = get_run_logger()
-    logger.info("[TASK-START] Autres")
-    results = collect_db_category("AUTRES")
-    logger.info("[TASK-END] Autres | results=%s", len(results))
-    return results
-
-
-@flow(name="Collect Sessions Flow")
-def collect_sessions_flow():
-    logger = get_run_logger()
-    logger.info("[FLOW] Démarrage -> Sessions")
-    results = collect_sessions_task()
-    logger.info("[FLOW] Terminé -> Sessions | results=%s", len(results))
-    return results
-
-
-@flow(name="Collect Statut Flow")
-def collect_statut_flow():
-    logger = get_run_logger()
-    logger.info("[FLOW] Démarrage -> Statut")
-    results = collect_statut_task()
-    logger.info("[FLOW] Terminé -> Statut | results=%s", len(results))
+@flow(name="Subflow Collecte Catégorie")
+def collect_category_subflow(category_name: str):
+    category = init_collect_task(category_name)
+    results = collect_category_task(category)
+    finish_collect_task(category, results)
+    create_collect_artifact(category, results)
     return results
 
 
 @flow(name="Collect Performance Flow")
-def collect_performance_flow():
-    logger = get_run_logger()
-    logger.info("[FLOW] Démarrage -> Performance")
-    results = collect_performance_task()
-    logger.info("[FLOW] Terminé -> Performance | results=%s", len(results))
-    return results
+def collect_performance_flow(category_name: str = "PERFORMANCE"):
+    return collect_category_subflow(category_name)
 
 
-@flow(name="Collect Autres Flow")
-def collect_autres_flow():
-    logger = get_run_logger()
-    logger.info("[FLOW] Démarrage -> Autres")
-    results = collect_autres_task()
-    logger.info("[FLOW] Terminé -> Autres | results=%s", len(results))
-    return results
-
-
+# 🔥 IMPORTANT : PAS DE serve()
 if __name__ == "__main__":
-    serve(
-        collect_sessions_flow.to_deployment(
-            name="collect-sessions-all-active-dbs",
-            interval=300,
-        ),
-        collect_statut_flow.to_deployment(
-            name="collect-statut-all-active-dbs",
-            interval=300,
-        ),
-        collect_performance_flow.to_deployment(
-            name="collect-performance-all-active-dbs",
-            interval=300,
-        ),
-        collect_autres_flow.to_deployment(
-            name="collect-autres-all-active-dbs",
-            interval=300,
-        ),
-    )
+    collect_performance_flow()
