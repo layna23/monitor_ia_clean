@@ -1,4 +1,5 @@
 import logging
+import time
 
 from prefect import flow, task, get_run_logger
 from prefect.artifacts import create_markdown_artifact, create_link_artifact
@@ -276,6 +277,11 @@ def collect_performance_flow(category_name: str = "PERFORMANCE"):
     return collect_category_subflow(category_name)
 
 
-# 🔥 IMPORTANT : PAS DE serve()
+# 🔥 BOUCLE CORRIGÉE
 if __name__ == "__main__":
-    collect_performance_flow()
+    try:
+        while True:
+            collect_performance_flow()
+            time.sleep(10)  # tu peux changer l’intervalle ici
+    except KeyboardInterrupt:
+        print("\nArrêt manuel de la collecte (Ctrl+C)")

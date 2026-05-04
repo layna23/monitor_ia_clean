@@ -581,7 +581,6 @@ function TopQueryTable({
   onSelectPhv,
   formatNumber,
   truncateSql,
-  formatDateTime,
   sortBy,
 }) {
   return (
@@ -592,14 +591,8 @@ function TopQueryTable({
             <th style={styles.th}>SQL_ID</th>
             <th style={styles.th}>SCHÉMA</th>
             <th style={styles.th}>EXTRAIT SQL</th>
-            <th style={styles.th}>PHV (PLAN_HASH_VALUE)</th>
-            <th style={styles.th}>MÉTRIQUE ACTIVE</th>
-            <th style={styles.th}>EXÉCUTIONS</th>
-            <th style={styles.th}>ELAPSED (S)</th>
-            <th style={styles.th}>CPU (S)</th>
-            <th style={styles.th}>BUFFER GETS</th>
-            <th style={styles.th}>DISK READS</th>
-            <th style={styles.th}>DERNIÈRE ACTIVITÉ</th>
+            <th style={styles.th}>PHV</th>
+            <th style={styles.th}>MÉTRIQUE</th>
           </tr>
         </thead>
 
@@ -622,20 +615,14 @@ function TopQueryTable({
                 </td>
 
                 <td style={styles.td}>
-                  <span
-                    style={{
-                      ...styles.schemaBadge,
-                      ...(String(row.parsing_schema_name || "").toUpperCase() ===
-                      "DBMON"
-                        ? styles.schemaBadgeBlue
-                        : styles.schemaBadgeGray),
-                    }}
-                  >
+                  <span style={styles.schemaBadge}>
                     {row.parsing_schema_name || "-"}
                   </span>
                 </td>
 
-                <td style={styles.tdSql}>{truncateSql(row.sql_content, 110)}</td>
+                <td style={styles.tdSql}>
+                  {truncateSql(row.sql_content, 110)}
+                </td>
 
                 <td style={styles.td}>
                   <div style={styles.inlinePhvWrap}>
@@ -647,7 +634,6 @@ function TopQueryTable({
                         return (
                           <button
                             key={`${row.sql_id}-${phv}`}
-                            type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               onSelectScript(row.script_id);
@@ -655,7 +641,9 @@ function TopQueryTable({
                             }}
                             style={{
                               ...styles.inlinePhvButton,
-                              ...(phvActive ? styles.inlinePhvButtonActive : {}),
+                              ...(phvActive
+                                ? styles.inlinePhvButtonActive
+                                : {}),
                             }}
                           >
                             {formatNumber(phv)}
@@ -663,20 +651,18 @@ function TopQueryTable({
                         );
                       })
                     ) : (
-                      <span style={styles.emptyMini}>—</span>
+                      "—"
                     )}
                   </div>
                 </td>
 
                 <td style={styles.tdCenter}>
-                  <MetricBadge sortBy={sortBy} row={row} formatNumber={formatNumber} />
+                  <MetricBadge
+                    sortBy={sortBy}
+                    row={row}
+                    formatNumber={formatNumber}
+                  />
                 </td>
-                <td style={styles.tdCenter}>{formatNumber(row.executions)}</td>
-                <td style={styles.tdCenter}>{formatNumber(row.elapsed_time_sec)}</td>
-                <td style={styles.tdCenter}>{formatNumber(row.cpu_time_sec)}</td>
-                <td style={styles.tdCenter}>{formatNumber(row.buffer_gets)}</td>
-                <td style={styles.tdCenter}>{formatNumber(row.disk_reads)}</td>
-                <td style={styles.tdCenter}>{formatDateTime(row.last_active_time)}</td>
               </tr>
             );
           })}
