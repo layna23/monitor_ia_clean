@@ -401,6 +401,169 @@ def _oracle_enrich_top_queries_with_phv(cursor, queries: List[Dict[str, Any]]) -
 
 
 # =============================================================================
+# PHV Object Details Helpers
+# =============================================================================
+
+def _oracle_get_phv_table_details(cursor, sql_id: str, phv: int):
+    sql = """
+        SELECT
+            p.sql_id,
+            p.plan_hash_value,
+            p.object_owner AS owner,
+            p.object_name  AS table_name,
+
+            LISTAGG(DISTINCT p.options, ', ')
+                WITHIN GROUP (ORDER BY p.options) AS access_types,
+
+            t.num_rows,
+            t.blocks,
+            t.last_analyzed,
+
+            CASE
+                WHEN t.buffer_pool = 'KEEP' THEN 'YES'
+                ELSE 'NORMAL'
+            END AS bufferise,
+
+ROUND(
+    LEAST(
+        (COUNT(DISTINCT bh.file# || '-' || bh.block#) / NULLIF(t.blocks, 0)) * 100,
+        100
+    ),
+    2
+) AS hit_ratio,
+
+            t.partitioned,
+            t.compression,
+
+            NVL(m.inserts, 0) AS inserts,
+            NVL(m.updates, 0) AS updates,
+            NVL(m.deletes, 0) AS deletes,
+
+            COUNT(DISTINCT i.index_name) AS nb_indexes
+
+        FROM v$sql_plan p
+
+        LEFT JOIN dba_tables t
+               ON t.owner = p.object_owner
+              AND t.table_name = p.object_name
+
+        LEFT JOIN dba_objects o
+               ON o.owner = p.object_owner
+              AND o.object_name = p.object_name
+              AND o.object_type = 'TABLE'
+
+        LEFT JOIN v$bh bh
+               ON bh.objd = o.data_object_id
+
+        LEFT JOIN dba_tab_modifications m
+               ON m.table_owner = p.object_owner
+              AND m.table_name  = p.object_name
+
+        LEFT JOIN dba_indexes i
+               ON i.table_owner = p.object_owner
+              AND i.table_name  = p.object_name
+
+        WHERE p.sql_id = :sql_id
+          AND p.plan_hash_value = :phv
+          AND p.operation = 'TABLE ACCESS'
+          AND p.object_owner IS NOT NULL
+          AND p.object_name IS NOT NULL
+
+        GROUP BY
+            p.sql_id,
+            p.plan_hash_value,
+            p.object_owner,
+            p.object_name,
+            t.num_rows,
+            t.blocks,
+            t.last_analyzed,
+            t.buffer_pool,
+            t.partitioned,
+            t.compression,
+            m.inserts,
+            m.updates,
+            m.deletes
+
+        ORDER BY
+            p.object_owner,
+            p.object_name
+    """
+    return _oracle_fetch_all_dict(cursor, sql, {"sql_id": sql_id, "phv": phv})
+
+def _oracle_get_phv_index_details(cursor, sql_id: str, phv: int):
+    sql = """
+        SELECT
+            p.sql_id,
+            p.plan_hash_value,
+            p.object_owner AS owner,
+            p.object_name AS table_name,
+
+            COUNT(i.index_name) OVER (
+                PARTITION BY p.object_owner, p.object_name
+            ) AS nb_indexes,
+
+            i.index_name,
+            i.index_type,
+            i.uniqueness,
+            i.status,
+
+            i.num_rows AS index_num_rows,
+            i.distinct_keys,
+            i.blevel,
+
+            LISTAGG(ic.column_name, ', ')
+                WITHIN GROUP (ORDER BY ic.column_position) AS index_columns,
+
+            CASE
+                WHEN i.buffer_pool = 'KEEP' THEN 'YES'
+                ELSE 'NORMAL'
+            END AS bufferise
+
+        FROM (
+            SELECT DISTINCT
+                   sql_id,
+                   plan_hash_value,
+                   object_owner,
+                   object_name
+            FROM v$sql_plan
+            WHERE sql_id = :sql_id
+              AND plan_hash_value = :phv
+              AND operation = 'TABLE ACCESS'
+              AND object_owner IS NOT NULL
+              AND object_name IS NOT NULL
+        ) p
+
+        LEFT JOIN dba_indexes i
+               ON i.table_owner = p.object_owner
+              AND i.table_name = p.object_name
+
+        LEFT JOIN dba_ind_columns ic
+               ON ic.index_owner = i.owner
+              AND ic.index_name = i.index_name
+
+        GROUP BY
+            p.sql_id,
+            p.plan_hash_value,
+            p.object_owner,
+            p.object_name,
+            i.index_name,
+            i.index_type,
+            i.uniqueness,
+            i.status,
+            i.num_rows,
+            i.distinct_keys,
+            i.blevel,
+            i.buffer_pool
+
+        ORDER BY
+            p.object_owner,
+            p.object_name,
+            i.index_name
+    """
+    return _oracle_fetch_all_dict(cursor, sql, {"sql_id": sql_id, "phv": phv})
+
+
+# =============================================================================
 # Metrics
 # =============================================================================
 
@@ -775,6 +938,78 @@ def get_sql_plan_rows(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur récupération détail du plan : {str(e)}")
+    finally:
+        _close_safely(cursor, conn)
+
+
+@router.get("/sql-analyzer/phv-table-details", summary="Détails des tables utilisées dans un SQL_ID + PHV")
+def get_phv_table_details(
+    db_id: int = Query(..., description="ID de la base cible"),
+    sql_id: str = Query(..., description="SQL_ID Oracle"),
+    phv: int = Query(..., description="PLAN_HASH_VALUE sélectionné"),
+    db: Session = Depends(get_db),
+):
+    target = _get_target_or_404(db, db_id)
+    _ensure_oracle_target(target)
+
+    conn = None
+    cursor = None
+
+    try:
+        conn = _get_target_conn(target)
+        cursor = conn.cursor()
+
+        items = _oracle_get_phv_table_details(cursor, sql_id=sql_id, phv=phv)
+
+        return {
+            "success": True,
+            "db_id": db_id,
+            "db_name": target.db_name,
+            "sql_id": sql_id,
+            "phv": phv,
+            "count": len(items),
+            "items": items,
+            "message": "Détails des tables du PHV récupérés avec succès",
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur récupération détails tables PHV : {str(e)}")
+    finally:
+        _close_safely(cursor, conn)
+
+
+@router.get("/sql-analyzer/phv-index-details", summary="Détails des index des tables utilisées dans un SQL_ID + PHV")
+def get_phv_index_details(
+    db_id: int = Query(..., description="ID de la base cible"),
+    sql_id: str = Query(..., description="SQL_ID Oracle"),
+    phv: int = Query(..., description="PLAN_HASH_VALUE sélectionné"),
+    db: Session = Depends(get_db),
+):
+    target = _get_target_or_404(db, db_id)
+    _ensure_oracle_target(target)
+
+    conn = None
+    cursor = None
+
+    try:
+        conn = _get_target_conn(target)
+        cursor = conn.cursor()
+
+        items = _oracle_get_phv_index_details(cursor, sql_id=sql_id, phv=phv)
+
+        return {
+            "success": True,
+            "db_id": db_id,
+            "db_name": target.db_name,
+            "sql_id": sql_id,
+            "phv": phv,
+            "count": len(items),
+            "items": items,
+            "message": "Détails des index du PHV récupérés avec succès",
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur récupération détails index PHV : {str(e)}")
     finally:
         _close_safely(cursor, conn)
 

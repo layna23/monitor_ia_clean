@@ -15,6 +15,10 @@ export default function AnalyseurSQL() {
   const [selectedPhv, setSelectedPhv] = useState(null);
   const [planText, setPlanText] = useState("");
 
+  const [phvTables, setPhvTables] = useState([]);
+  const [phvIndexes, setPhvIndexes] = useState([]);
+  const [objectDetailsLoading, setObjectDetailsLoading] = useState(false);
+
   const [loading, setLoading] = useState(true);
   const [topSqlLoading, setTopSqlLoading] = useState(false);
   const [planTextLoading, setPlanTextLoading] = useState(false);
@@ -23,19 +27,14 @@ export default function AnalyseurSQL() {
   const [message, setMessage] = useState({ type: "", text: "" });
 
   async function apiGet(endpoint, defaultValue = null) {
-    try {
-      const res = await fetch(`${API_BASE}${endpoint}`);
-      const data = await res.json().catch(() => null);
+    const res = await fetch(`${API_BASE}${endpoint}`);
+    const data = await res.json().catch(() => null);
 
-      if (!res.ok) {
-        throw new Error(data?.detail || data?.message || "Erreur API");
-      }
-
-      return data ?? defaultValue;
-    } catch (e) {
-      console.error(e);
-      throw e;
+    if (!res.ok) {
+      throw new Error(data?.detail || data?.message || "Erreur API");
     }
+
+    return data ?? defaultValue;
   }
 
   function mapTopQueryToUiScript(row) {
@@ -114,7 +113,6 @@ export default function AnalyseurSQL() {
 
       setTopQueries(mapped);
     } catch (e) {
-      console.error(e);
       setTopQueries([]);
       setMessage({
         type: "error",
@@ -125,9 +123,51 @@ export default function AnalyseurSQL() {
     }
   }
 
+  async function fetchObjectDetailsForPhv(sqlId, phv) {
+    if (!selectedDbId || !sqlId || phv === null || phv === undefined) {
+      setPhvTables([]);
+      setPhvIndexes([]);
+      return;
+    }
+
+    try {
+      setObjectDetailsLoading(true);
+
+      const tablesResult = await apiGet(
+        `/sql-analyzer/phv-table-details?db_id=${selectedDbId}&sql_id=${encodeURIComponent(
+          sqlId
+        )}&phv=${encodeURIComponent(phv)}`,
+        { success: false, items: [] }
+      );
+
+      const indexesResult = await apiGet(
+        `/sql-analyzer/phv-index-details?db_id=${selectedDbId}&sql_id=${encodeURIComponent(
+          sqlId
+        )}&phv=${encodeURIComponent(phv)}`,
+        { success: false, items: [] }
+      );
+
+      setPhvTables(Array.isArray(tablesResult?.items) ? tablesResult.items : []);
+      setPhvIndexes(Array.isArray(indexesResult?.items) ? indexesResult.items : []);
+    } catch (e) {
+      setPhvTables([]);
+      setPhvIndexes([]);
+      setMessage({
+        type: "error",
+        text: e.message || "Erreur récupération détails tables/index PHV.",
+      });
+    } finally {
+      setObjectDetailsLoading(false);
+    }
+  }
+
   async function fetchPlanForPhv(sqlId, phv, returnOnly = false) {
     if (!selectedDbId || !sqlId || phv === null || phv === undefined) {
-      if (!returnOnly) setPlanText("");
+      if (!returnOnly) {
+        setPlanText("");
+        setPhvTables([]);
+        setPhvIndexes([]);
+      }
       return "";
     }
 
@@ -136,6 +176,8 @@ export default function AnalyseurSQL() {
         setPlanTextLoading(true);
         setMessage({ type: "", text: "" });
         setSelectedPhv(phv);
+        setPhvTables([]);
+        setPhvIndexes([]);
       }
 
       const result = await apiGet(
@@ -144,25 +186,22 @@ export default function AnalyseurSQL() {
         )}&phv=${encodeURIComponent(phv)}&format_value=${encodeURIComponent(
           "TYPICAL"
         )}`,
-        {
-          success: false,
-          lines: [],
-          plan_text: "",
-        }
+        { success: false, lines: [], plan_text: "" }
       );
 
       const text = result?.plan_text || "";
 
       if (!returnOnly) {
         setPlanText(text);
+        await fetchObjectDetailsForPhv(sqlId, phv);
       }
 
       return text;
     } catch (e) {
-      console.error(e);
-
       if (!returnOnly) {
         setPlanText("");
+        setPhvTables([]);
+        setPhvIndexes([]);
         setMessage({
           type: "error",
           text: e.message || "Erreur récupération du plan",
@@ -224,6 +263,8 @@ export default function AnalyseurSQL() {
     setSelectedScriptId("");
     setSelectedPhv(null);
     setPlanText("");
+    setPhvTables([]);
+    setPhvIndexes([]);
     setActiveBottomTab("plan");
   }, [selectedDbId, excludeDbmon, sortBy]);
 
@@ -262,6 +303,8 @@ export default function AnalyseurSQL() {
     } else {
       setSelectedPhv(null);
       setPlanText("");
+      setPhvTables([]);
+      setPhvIndexes([]);
     }
   }, [selectedScript?.sql_id, selectedDbId, selectedDbType]);
 
@@ -281,6 +324,18 @@ export default function AnalyseurSQL() {
     return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(
       d.getHours()
     )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+
+  function formatPercent(value) {
+    if (value === null || value === undefined || value === "") return "—";
+
+    const n = Number(value);
+    if (!Number.isFinite(n)) return String(value);
+
+    return `${n.toLocaleString("fr-FR", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    })}%`;
   }
 
   function truncateSql(sql, max = 110) {
@@ -418,7 +473,6 @@ export default function AnalyseurSQL() {
             }}
             formatNumber={formatNumber}
             truncateSql={truncateSql}
-            formatDateTime={formatDateTime}
             sortBy={sortBy}
           />
         )}
@@ -498,6 +552,24 @@ export default function AnalyseurSQL() {
               <>
                 <div style={styles.subPanelTitle}>Plan sélectionné</div>
                 <pre style={styles.planTextBlock}>{planText}</pre>
+
+                <div style={{ height: 18 }} />
+
+                <PhvTablesPanel
+                  rows={phvTables}
+                  loading={objectDetailsLoading}
+                  formatNumber={formatNumber}
+                  formatDateTime={formatDateTime}
+                  formatPercent={formatPercent}
+                />
+
+                <div style={{ height: 18 }} />
+
+                <PhvIndexesPanel
+                  rows={phvIndexes}
+                  loading={objectDetailsLoading}
+                  formatNumber={formatNumber}
+                />
               </>
             )}
           </>
@@ -620,9 +692,7 @@ function TopQueryTable({
                   </span>
                 </td>
 
-                <td style={styles.tdSql}>
-                  {truncateSql(row.sql_content, 110)}
-                </td>
+                <td style={styles.tdSql}>{truncateSql(row.sql_content, 110)}</td>
 
                 <td style={styles.td}>
                   <div style={styles.inlinePhvWrap}>
@@ -634,6 +704,7 @@ function TopQueryTable({
                         return (
                           <button
                             key={`${row.sql_id}-${phv}`}
+                            type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               onSelectScript(row.script_id);
@@ -641,9 +712,7 @@ function TopQueryTable({
                             }}
                             style={{
                               ...styles.inlinePhvButton,
-                              ...(phvActive
-                                ? styles.inlinePhvButtonActive
-                                : {}),
+                              ...(phvActive ? styles.inlinePhvButtonActive : {}),
                             }}
                           >
                             {formatNumber(phv)}
@@ -669,6 +738,182 @@ function TopQueryTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+function PhvTablesPanel({
+  rows,
+  loading,
+  formatNumber,
+  formatDateTime,
+  formatPercent,
+}) {
+  if (loading) {
+    return <InfoBox text="Chargement des détails des tables du PHV..." />;
+  }
+
+  if (!rows.length) {
+    return (
+      <InfoBox text="Aucune table détectée dans ce PHV ou privilèges insuffisants." />
+    );
+  }
+
+  return (
+    <>
+      <div style={styles.subPanelTitle}>Détails des tables du PHV</div>
+
+      <div style={styles.tableWrap}>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>Owner</th>
+              <th style={styles.th}>Table</th>
+              <th style={styles.th}>Access</th>
+              <th style={styles.th}>Rows</th>
+              <th style={styles.th}>Blocks</th>
+              <th style={styles.th}>Last analyzed</th>
+              <th style={styles.th}>Bufferisé</th>
+              <th style={styles.th}>Hit ratio</th>
+              <th style={styles.th}>Partitionnée</th>
+              <th style={styles.th}>Compression</th>
+              <th style={styles.th}>Inserts</th>
+              <th style={styles.th}>Updates</th>
+              <th style={styles.th}>Deletes</th>
+              <th style={styles.th}>Nb index</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {rows.map((row, idx) => (
+              <tr key={`${row.owner}-${row.table_name}-${idx}`}>
+                <td style={styles.td}>{row.owner || "—"}</td>
+                <td style={styles.td}>
+                  <strong>{row.table_name || "—"}</strong>
+                </td>
+                <td style={styles.td}>{row.access_types || "—"}</td>
+                <td style={styles.tdCenter}>{formatNumber(row.num_rows)}</td>
+                <td style={styles.tdCenter}>{formatNumber(row.blocks)}</td>
+                <td style={styles.td}>{formatDateTime(row.last_analyzed)}</td>
+                <td style={styles.tdCenter}>{row.bufferise || "—"}</td>
+                <td style={styles.tdCenter}>{formatPercent(row.hit_ratio)}</td>
+                <td style={styles.tdCenter}>{row.partitioned || "—"}</td>
+                <td style={styles.tdCenter}>{row.compression || "—"}</td>
+                <td style={styles.tdCenter}>{formatNumber(row.inserts)}</td>
+                <td style={styles.tdCenter}>{formatNumber(row.updates)}</td>
+                <td style={styles.tdCenter}>{formatNumber(row.deletes)}</td>
+                <td style={styles.tdCenter}>{formatNumber(row.nb_indexes)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function PhvIndexesPanel({ rows, loading, formatNumber }) {
+  const [selectedIndex, setSelectedIndex] = useState("ALL");
+
+  const indexOptions = useMemo(() => {
+    const uniqueNames = new Set();
+
+    rows.forEach((row) => {
+      if (row.index_name) {
+        uniqueNames.add(String(row.index_name));
+      }
+    });
+
+    return Array.from(uniqueNames).sort((a, b) => a.localeCompare(b));
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    if (selectedIndex === "ALL") {
+      return rows;
+    }
+
+    return rows.filter((row) => String(row.index_name) === String(selectedIndex));
+  }, [rows, selectedIndex]);
+
+  useEffect(() => {
+    setSelectedIndex("ALL");
+  }, [rows]);
+
+  if (loading) {
+    return <InfoBox text="Chargement des détails des index du PHV..." />;
+  }
+
+  if (!rows.length) {
+    return (
+      <InfoBox text="Aucun index trouvé pour les tables de ce PHV ou privilèges insuffisants." />
+    );
+  }
+
+  return (
+    <>
+      <div style={styles.indexPanelHeader}>
+        <div style={styles.subPanelTitle}>Détails des index des tables du PHV</div>
+
+        {indexOptions.length > 1 ? (
+          <div style={styles.indexFilterBox}>
+            <FieldLabel text="Filtrer par index" />
+            <select
+              style={styles.indexSelect}
+              value={selectedIndex}
+              onChange={(e) => setSelectedIndex(e.target.value)}
+            >
+              <option value="ALL">Tous les index</option>
+              {indexOptions.map((indexName) => (
+                <option key={indexName} value={indexName}>
+                  {indexName}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+      </div>
+
+      <div style={styles.tableWrap}>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>Owner</th>
+              <th style={styles.th}>Table</th>
+              <th style={styles.th}>Nb index</th>
+              <th style={styles.th}>Index</th>
+              <th style={styles.th}>Type</th>
+              <th style={styles.th}>Unique</th>
+              <th style={styles.th}>Status</th>
+              <th style={styles.th}>Rows</th>
+              <th style={styles.th}>Distinct keys</th>
+              <th style={styles.th}>Blevel</th>
+              <th style={styles.th}>Columns</th>
+              <th style={styles.th}>Bufferisé</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {filteredRows.map((row, idx) => (
+              <tr key={`${row.owner}-${row.table_name}-${row.index_name}-${idx}`}>
+                <td style={styles.td}>{row.owner || "—"}</td>
+                <td style={styles.td}>{row.table_name || "—"}</td>
+                <td style={styles.tdCenter}>{formatNumber(row.nb_indexes)}</td>
+                <td style={styles.td}>
+                  <strong>{row.index_name || "—"}</strong>
+                </td>
+                <td style={styles.td}>{row.index_type || "—"}</td>
+                <td style={styles.tdCenter}>{row.uniqueness || "—"}</td>
+                <td style={styles.tdCenter}>{row.status || "—"}</td>
+                <td style={styles.tdCenter}>{formatNumber(row.index_num_rows)}</td>
+                <td style={styles.tdCenter}>{formatNumber(row.distinct_keys)}</td>
+                <td style={styles.tdCenter}>{formatNumber(row.blevel)}</td>
+                <td style={styles.td}>{row.index_columns || "—"}</td>
+                <td style={styles.tdCenter}>{row.bufferise || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
@@ -776,7 +1021,6 @@ const styles = {
     background: "#2563eb",
     color: "#ffffff",
     border: "1px solid #2563eb",
-    boxShadow: "0 8px 18px rgba(37,99,235,0.18)",
   },
   rightPanelHeader: {
     display: "flex",
@@ -820,10 +1064,30 @@ const styles = {
     color: "#14213d",
     marginBottom: 12,
   },
+  indexPanelHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    gap: 12,
+    flexWrap: "wrap",
+    marginBottom: 12,
+  },
+  indexFilterBox: {
+    minWidth: 260,
+  },
+  indexSelect: {
+    width: "100%",
+    padding: "0.65rem 0.85rem",
+    borderRadius: 10,
+    border: "1px solid #d9e2f2",
+    background: "#fff",
+    fontSize: 13,
+    boxSizing: "border-box",
+    color: "#243b6b",
+  },
   tableWrap: {
     overflowX: "auto",
     borderRadius: 14,
-    overflow: "hidden",
     border: "1px solid #e1e8f4",
   },
   table: {
@@ -836,7 +1100,6 @@ const styles = {
     fontSize: "0.72rem",
     fontWeight: 800,
     textTransform: "uppercase",
-    letterSpacing: "0.05em",
     color: "#8396ba",
     padding: "0.95rem 0.8rem",
     borderBottom: "1px solid #e1e8f4",
@@ -866,8 +1129,6 @@ const styles = {
     color: "#31456a",
     padding: "0.9rem 0.8rem",
     borderBottom: "1px solid #eef3fa",
-    textAlign: "left",
-    verticalAlign: "top",
     minWidth: 220,
     lineHeight: 1.45,
   },
@@ -883,7 +1144,6 @@ const styles = {
   sqlLink: {
     color: "#3b82f6",
     fontWeight: 700,
-    cursor: "pointer",
   },
   schemaBadge: {
     display: "inline-block",
@@ -891,13 +1151,6 @@ const styles = {
     borderRadius: 999,
     fontSize: 11,
     fontWeight: 800,
-  },
-  schemaBadgeBlue: {
-    background: "#dbeafe",
-    color: "#2563eb",
-    border: "1px solid #bfdbfe",
-  },
-  schemaBadgeGray: {
     background: "#f1f5f9",
     color: "#64748b",
     border: "1px solid #e2e8f0",
@@ -909,9 +1162,6 @@ const styles = {
     minWidth: 120,
   },
   inlinePhvButton: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
     borderRadius: 999,
     padding: "0.34rem 0.72rem",
     background: "#eef4ff",
@@ -939,16 +1189,11 @@ const styles = {
     fontSize: 10,
     fontWeight: 800,
     color: "#64748b",
-    textTransform: "uppercase",
   },
   metricBadgeValue: {
     fontSize: 11,
     fontWeight: 800,
     color: "#0f172a",
-  },
-  emptyMini: {
-    color: "#9aa8c2",
-    fontSize: 13,
   },
   planTextBlock: {
     margin: 0,
