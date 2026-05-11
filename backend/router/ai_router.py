@@ -56,6 +56,36 @@ def extract_best_phv(analysis: str):
     return None
 
 
+def save_chat_message(db: Session, sql_id: str, phv: str, role: str, content: str):
+    if not content:
+        return
+
+    db.execute(
+        text(
+            """
+            INSERT INTO DBMON.AI_CHAT_MESSAGES (
+                SQL_ID,
+                PHV,
+                ROLE,
+                CONTENT
+            )
+            VALUES (
+                :sql_id,
+                :phv,
+                :role,
+                :content
+            )
+            """
+        ),
+        {
+            "sql_id": sql_id,
+            "phv": str(phv) if phv is not None else None,
+            "role": role,
+            "content": content,
+        },
+    )
+
+
 def get_db_context(db: Session, db_id: int):
     db_row = db.execute(
         text(
@@ -156,77 +186,83 @@ def list_playbooks():
             {
                 "code": "PLAYBOOK_RAM_HIGH",
                 "title": "Utilisation RAM élevée",
-                "description": "Identifier les sessions et requêtes qui consomment beaucoup de mémoire.",
+                "description": "Guide d’analyse pour identifier les causes possibles d’une RAM élevée.",
                 "steps": [
+                    "Vérifier la métrique RAM_USAGE et son évolution",
                     "Lister les sessions actives",
-                    "Vérifier les requêtes SQL les plus coûteuses",
+                    "Identifier les requêtes SQL les plus coûteuses",
                     "Analyser PGA / SGA",
-                    "Proposer optimisation ou action manuelle"
+                    "Proposer des pistes d’optimisation manuelles",
                 ],
-                "requires_validation": True
+                "execution_mode": "MANUAL_GUIDE_ONLY",
             },
             {
                 "code": "PLAYBOOK_CPU_HIGH",
                 "title": "CPU élevé",
-                "description": "Identifier les sessions ou requêtes responsables de la charge CPU.",
+                "description": "Guide d’analyse pour identifier les sessions ou requêtes responsables de la charge CPU.",
                 "steps": [
                     "Lire la métrique CPU",
                     "Lister les sessions actives",
                     "Identifier les SQL_ID les plus coûteux",
-                    "Analyser le plan d'exécution"
+                    "Analyser les plans d’exécution",
+                    "Proposer des pistes d’optimisation manuelles",
                 ],
-                "requires_validation": True
+                "execution_mode": "MANUAL_GUIDE_ONLY",
             },
             {
                 "code": "PLAYBOOK_DB_TIME_HIGH",
                 "title": "DB Time élevé",
-                "description": "Analyser les causes d'attente et les requêtes lentes.",
+                "description": "Guide d’analyse des causes d’attente et des requêtes lentes.",
                 "steps": [
                     "Vérifier DB Time",
-                    "Analyser les événements d'attente",
+                    "Analyser les événements d’attente",
                     "Identifier les requêtes SQL lentes",
-                    "Comparer les PHV si disponibles"
+                    "Comparer les PHV si disponibles",
+                    "Proposer des pistes d’analyse manuelles",
                 ],
-                "requires_validation": True
+                "execution_mode": "MANUAL_GUIDE_ONLY",
             },
             {
                 "code": "PLAYBOOK_LOCKS",
                 "title": "Locks ou sessions bloquées",
-                "description": "Identifier les sessions bloquantes et les objets verrouillés.",
+                "description": "Guide d’analyse pour identifier les sessions bloquantes et objets verrouillés.",
                 "steps": [
                     "Lister les objets verrouillés",
                     "Identifier la session bloquante",
                     "Afficher la requête SQL associée",
-                    "Demander validation avant action corrective"
+                    "Proposer les vérifications manuelles avant toute action",
                 ],
-                "requires_validation": True
+                "execution_mode": "MANUAL_GUIDE_ONLY",
             },
             {
                 "code": "PLAYBOOK_SESSIONS_HIGH",
                 "title": "Nombre de sessions élevé",
-                "description": "Analyser l'augmentation du nombre de sessions.",
+                "description": "Guide d’analyse de l’augmentation du nombre de sessions.",
                 "steps": [
                     "Lister les sessions ouvertes",
                     "Identifier les programmes connectés",
                     "Détecter les sessions inactives",
-                    "Proposer nettoyage manuel"
+                    "Vérifier l’évolution du nombre de sessions",
+                    "Proposer des recommandations manuelles",
                 ],
-                "requires_validation": True
+                "execution_mode": "MANUAL_GUIDE_ONLY",
             },
             {
                 "code": "PLAYBOOK_SQL_TUNING",
                 "title": "SQL tuning",
-                "description": "Analyser les requêtes SQL lentes ou coûteuses.",
+                "description": "Guide d’analyse des requêtes SQL lentes ou coûteuses.",
                 "steps": [
                     "Lister le top SQL",
-                    "Analyser le plan d'exécution",
+                    "Analyser le plan d’exécution",
                     "Comparer les PHV",
-                    "Proposer index ou mise à jour des statistiques"
+                    "Vérifier index et statistiques",
+                    "Proposer des pistes SQL tuning manuelles",
                 ],
-                "requires_validation": True
-            }
+                "execution_mode": "MANUAL_GUIDE_ONLY",
+            },
         ]
     }
+    
 
 
 @router.post("/analyze-db/{db_id}")
@@ -253,46 +289,35 @@ Analyse CPU, RAM, DB Time, sessions, locks, transactions.
 Explique les tendances et les anomalies.
 
 === Problèmes détectés ===
-Liste les anomalies détectées (CPU élevé, DB Time élevé, sessions élevées, locks, etc).
+Liste les anomalies détectées.
 
 === Incidents probables ===
-Anticipe les incidents possibles :
-- saturation CPU
-- blocage sessions
-- requêtes lentes
-- contention ressources
+Anticipe les incidents possibles.
 
 === Analyse des causes ===
-Explique les causes possibles :
-- requêtes SQL lourdes
-- manque d’index
-- statistiques obsolètes
-- surcharge système
+Explique les causes possibles.
 
 === Actions recommandées ===
-Donne des actions concrètes :
-- requêtes SQL à vérifier
-- index à créer
-- stats à mettre à jour
-- sessions à analyser
-- plans d’exécution à vérifier
+Donne uniquement des recommandations manuelles.
+Ne propose aucune correction automatique.
+Ne dis jamais que le système va exécuter une action.
+L’admin reste responsable de toute décision.
 
 === Playbooks recommandés ===
-Si une anomalie est détectée, propose un ou plusieurs playbooks parmi cette liste :
+Si une anomalie est détectée, propose un ou plusieurs playbooks.
 
-- PLAYBOOK_RAM_HIGH : Utilisation RAM élevée
-- PLAYBOOK_CPU_HIGH : Utilisation CPU élevée
-- PLAYBOOK_DB_TIME_HIGH : DB Time élevé
-- PLAYBOOK_LOCKS : Locks ou sessions bloquées
-- PLAYBOOK_SESSIONS_HIGH : Nombre de sessions élevé
-- PLAYBOOK_SQL_TUNING : Requêtes SQL lentes ou coûteuses
+IMPORTANT :
+- Les playbooks sont uniquement des guides d’analyse.
+- Ne propose aucune exécution automatique.
+- Ne dis pas que le système va corriger le problème.
+- Donne seulement les étapes manuelles recommandées.
+- L’admin reste responsable de l’action.
 
 Pour chaque playbook recommandé, donne :
 - le code du playbook
 - la raison
-- les étapes prévues
+- les étapes proposées
 - le niveau de risque LOW / MEDIUM / HIGH
-- préciser que la validation humaine est obligatoire avant exécution
 
 === Conclusion finale ===
 Conclusion claire avec niveau de risque : OK / WARNING / CRITICAL
@@ -305,6 +330,90 @@ Conclusion claire avec niveau de risque : OK / WARNING / CRITICAL
         "mode": "database_ai_analysis",
         "db_id": db_id,
         "analysis": analysis,
+    }
+
+
+@router.post("/chat-db-analysis")
+def chat_db_analysis(payload: dict, db: Session = Depends(get_db)):
+    db_id = payload.get("db_id")
+    db_name = payload.get("db_name", "")
+    analysis = payload.get("analysis", "")
+    messages = payload.get("messages", [])
+
+    if not db_id:
+        raise HTTPException(status_code=400, detail="db_id obligatoire")
+
+    if not isinstance(messages, list) or len(messages) == 0:
+        raise HTTPException(status_code=400, detail="Messages obligatoires")
+
+    context = get_db_context(db, int(db_id))
+
+    prompt = f"""
+Tu es un chatbot expert DBA Oracle.
+
+Tu discutes avec l'utilisateur à propos d'une analyse IA globale d'une base de données.
+
+Base :
+{db_name or "Non fournie"}
+
+Contexte DB :
+{json.dumps(context, ensure_ascii=False, default=str)}
+
+Analyse IA précédente :
+{analysis or "Aucune analyse précédente"}
+
+Conversation :
+{json.dumps(messages, ensure_ascii=False, indent=2, default=str)}
+
+Règles :
+- Réponds uniquement en français.
+- Réponds comme un assistant DBA.
+- Explique les anomalies détectées.
+- Explique les métriques CPU, RAM, sessions, DB Time, locks, transactions.
+- Si l'utilisateur demande un playbook, propose seulement les étapes.
+- Ne dis jamais que tu vas exécuter une correction.
+- Ne propose aucune action automatique.
+- Ne dis jamais que le système peut corriger automatiquement.
+- Donne des recommandations manuelles et prudentes.
+- Si les données sont insuffisantes, dis-le clairement.
+- L'objectif est d'aider à comprendre et guider, pas d'exécuter.
+"""
+
+    answer = call_groq(prompt)
+
+    try:
+        history_key = f"DB_ANALYSIS_{db_id}"
+        last_user_message = messages[-1].get("content", "")
+
+        save_chat_message(
+            db=db,
+            sql_id=history_key,
+            phv=None,
+            role="user",
+            content=last_user_message,
+        )
+
+        save_chat_message(
+            db=db,
+            sql_id=history_key,
+            phv=None,
+            role="assistant",
+            content=answer,
+        )
+
+        db.commit()
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Réponse IA générée mais sauvegarde discussion échouée : {str(e)}",
+        )
+
+    return {
+        "success": True,
+        "mode": "chat_db_analysis",
+        "answer": answer,
     }
 
 
@@ -390,10 +499,10 @@ PLANS PHV :
 Règles :
 - Analyse chaque PHV séparément.
 - Compare cost, buffer_gets, disk_reads, elapsed_time, cpu_time, executions si disponibles.
-- Compare aussi FULL TABLE SCAN, INDEX RANGE SCAN, TABLE ACCESS BY INDEX ROWID, NESTED LOOPS, HASH JOIN, SORT et TEMP.
+- Compare FULL TABLE SCAN, INDEX RANGE SCAN, TABLE ACCESS BY INDEX ROWID, NESTED LOOPS, HASH JOIN, SORT et TEMP.
 - Donne un score /100 pour chaque PHV.
 - Choisis un seul meilleur PHV.
-- Le meilleur PHV n'est pas forcément celui avec le plus petit cost : justifie avec les métriques disponibles.
+- Le meilleur PHV n'est pas forcément celui avec le plus petit cost.
 - Si les métriques sont insuffisantes, dis que le choix est estimé.
 - Explique clairement pourquoi ce PHV est meilleur que les autres.
 
@@ -402,28 +511,20 @@ Réponds uniquement en français.
 Structure obligatoirement la réponse comme ceci :
 
 === Résumé global ===
-Explique brièvement le contexte.
 
 === Tableau comparatif des PHV ===
-Présente les PHV avec coût, buffer_gets, disk_reads, type d'accès et score /100.
 
 === Analyse détaillée de chaque PHV ===
-Analyse chaque PHV séparément.
 
 === Meilleur PHV choisi ===
-Indique clairement le meilleur PHV.
 
 === Pourquoi ce PHV est le meilleur ===
-Explique pourquoi il est meilleur que les autres.
 
 === Risques ou limites de l'analyse ===
-Explique si le choix est estimé ou sûr.
 
 === Recommandations SQL / index ===
-Donne les recommandations.
 
 === Conclusion finale ===
-Conclusion claire.
 
 IMPORTANT :
 À la toute fin, écris exactement :
@@ -441,3 +542,138 @@ BEST_PHV = <valeur_du_meilleur_phv>
         "best_phv": best_phv,
         "analysis": analysis,
     }
+
+
+@router.post("/chat-sql-analysis")
+def chat_sql_analysis(payload: dict, db: Session = Depends(get_db)):
+    sql_id = payload.get("sql_id", "")
+    sql = payload.get("sql", "")
+    selected_phv = payload.get("selected_phv", "")
+    best_phv = payload.get("best_phv", "")
+    analysis = payload.get("analysis", "")
+    plans = payload.get("plans", [])
+    messages = payload.get("messages", [])
+
+    if not sql.strip():
+        raise HTTPException(status_code=400, detail="SQL obligatoire")
+
+    if not isinstance(messages, list) or len(messages) == 0:
+        raise HTTPException(status_code=400, detail="Messages obligatoires")
+
+    prompt = f"""
+Tu es un chatbot expert DBA Oracle et SQL tuning.
+
+Tu discutes avec un administrateur DBA à propos d'une analyse IA déjà générée.
+Tu dois répondre uniquement en français.
+
+CONTEXTE SQL :
+SQL_ID : {sql_id or "Non fourni"}
+
+SQL :
+{sql}
+
+PHV sélectionné :
+{selected_phv or "Non fourni"}
+
+Meilleur PHV choisi par l'analyse IA :
+{best_phv or "Non fourni"}
+
+ANALYSE IA PRÉCÉDENTE :
+{analysis or "Aucune analyse précédente"}
+
+PLANS DISPONIBLES :
+{json.dumps(plans, ensure_ascii=False, indent=2, default=str)}
+
+CONVERSATION :
+{json.dumps(messages, ensure_ascii=False, indent=2, default=str)}
+
+Règles de réponse :
+- Réponds comme un chatbot DBA Oracle.
+- Sois clair, précis et pédagogique.
+- Si l'admin conteste ton choix de PHV, explique calmement pourquoi.
+- Si l'admin a raison ou soulève un doute valide, reconnais-le.
+- Ne prétends pas être sûr à 100% si les métriques sont insuffisantes.
+- Explique toujours les limites de l'analyse.
+- Ne propose jamais une action dangereuse sans validation humaine.
+- Si l'admin demande une comparaison, compare les PHV.
+- Si l'admin demande une correction, reformule l'analyse corrigée.
+- Si l'admin demande pourquoi un autre PHV n'a pas été choisi, compare-le au meilleur PHV.
+- Si l'admin demande une recommandation, donne des étapes concrètes.
+"""
+
+    answer = call_groq(prompt)
+
+    try:
+        last_user_message = messages[-1].get("content", "")
+
+        save_chat_message(
+            db=db,
+            sql_id=sql_id,
+            phv=selected_phv,
+            role="user",
+            content=last_user_message,
+        )
+
+        save_chat_message(
+            db=db,
+            sql_id=sql_id,
+            phv=selected_phv,
+            role="assistant",
+            content=answer,
+        )
+
+        db.commit()
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Réponse IA générée mais sauvegarde discussion échouée : {str(e)}",
+        )
+
+    return {
+        "success": True,
+        "mode": "chat_sql_analysis",
+        "answer": answer,
+    }
+
+
+@router.get("/chat-history/{sql_id}")
+def get_chat_history(sql_id: str, db: Session = Depends(get_db)):
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT
+                    MESSAGE_ID,
+                    SQL_ID,
+                    PHV,
+                    ROLE,
+                    CONTENT,
+                    CREATED_AT
+                FROM DBMON.AI_CHAT_MESSAGES
+                WHERE SQL_ID = :sql_id
+                ORDER BY CREATED_AT ASC, MESSAGE_ID ASC
+                """
+            ),
+            {"sql_id": sql_id},
+        ).mappings().all()
+
+        return {
+            "success": True,
+            "sql_id": sql_id,
+            "messages": [
+                {
+                    "message_id": row["message_id"],
+                    "sql_id": row["sql_id"],
+                    "phv": row["phv"],
+                    "role": row["role"],
+                    "content": row["content"],
+                    "created_at": str(row["created_at"]),
+                }
+                for row in rows
+            ],
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

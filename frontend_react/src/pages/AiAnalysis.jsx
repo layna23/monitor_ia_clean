@@ -31,21 +31,55 @@ function getRiskFromText(text) {
   };
 }
 
+async function parseJsonSafe(res) {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 export default function AiAnalysis() {
   const [dbs, setDbs] = useState([]);
   const [selectedDbId, setSelectedDbId] = useState("");
   const [selectedDbName, setSelectedDbName] = useState("");
+
   const [analysis, setAnalysis] = useState("");
   const [loadingDbs, setLoadingDbs] = useState(true);
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   const [error, setError] = useState("");
-  const [validatedPlaybook, setValidatedPlaybook] = useState(false);
+
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const risk = useMemo(() => getRiskFromText(analysis), [analysis]);
-  const hasPlaybook = useMemo(
-    () => String(analysis || "").toLowerCase().includes("playbook"),
-    [analysis]
-  );
+
+  async function loadChatHistory(dbId) {
+    if (!dbId) return;
+
+    try {
+      setHistoryLoading(true);
+
+      const historyKey = `DB_ANALYSIS_${dbId}`;
+      const res = await fetch(`${API_BASE}/ai/chat-history/${historyKey}`);
+      const data = await parseJsonSafe(res);
+
+      if (data?.success && Array.isArray(data.messages)) {
+        const formatted = data.messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        }));
+
+        setChatMessages(formatted);
+      }
+    } catch (e) {
+      console.error("Erreur historique chatbot:", e);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
 
   useEffect(() => {
     async function loadDbs() {
@@ -64,12 +98,16 @@ export default function AiAnalysis() {
 
         const defaultDb =
           rows.find((db) => String(db.db_id) === String(dbIdFromUrl)) ||
-          rows.find((db) => String(db.db_name || "").toUpperCase() === "LOCAL_19C") ||
+          rows.find(
+            (db) => String(db.db_name || "").toUpperCase() === "LOCAL_19C"
+          ) ||
           rows[0];
 
         if (defaultDb) {
-          setSelectedDbId(String(defaultDb.db_id));
+          const id = String(defaultDb.db_id);
+          setSelectedDbId(id);
           setSelectedDbName(defaultDb.db_name || `Base ${defaultDb.db_id}`);
+          loadChatHistory(id);
         }
       } catch (e) {
         console.error(e);
@@ -84,11 +122,16 @@ export default function AiAnalysis() {
 
   function handleChangeDb(value) {
     setSelectedDbId(value);
+
     const found = dbs.find((db) => String(db.db_id) === String(value));
+
     setSelectedDbName(found?.db_name || `Base ${value}`);
     setAnalysis("");
     setError("");
-    setValidatedPlaybook(false);
+    setChatInput("");
+    setChatMessages([]);
+
+    loadChatHistory(value);
   }
 
   async function runAnalysis() {
@@ -100,7 +143,7 @@ export default function AiAnalysis() {
     setLoadingAnalysis(true);
     setError("");
     setAnalysis("");
-    setValidatedPlaybook(false);
+    setChatInput("");
 
     try {
       const res = await fetch(`${API_BASE}/ai/analyze-db/${selectedDbId}`, {
@@ -110,13 +153,24 @@ export default function AiAnalysis() {
         },
       });
 
-      const data = await res.json();
+      const data = await parseJsonSafe(res);
 
       if (!res.ok) {
         throw new Error(data?.detail || "Erreur analyse IA.");
       }
 
-      setAnalysis(data?.analysis || "");
+      const resultText = data?.analysis || "";
+      setAnalysis(resultText);
+
+      if (!chatMessages.length) {
+        setChatMessages([
+          {
+            role: "assistant",
+            content:
+              "J’ai terminé l’analyse de la base. Vous pouvez me poser des questions sur les anomalies, les métriques, les causes possibles, les risques ou les étapes de playbook proposées.",
+          },
+        ]);
+      }
     } catch (e) {
       console.error(e);
       setError(String(e.message || e));
@@ -125,8 +179,70 @@ export default function AiAnalysis() {
     }
   }
 
-  function validatePlaybook() {
-    setValidatedPlaybook(true);
+  async function sendChatMessage() {
+    const question = chatInput.trim();
+
+    if (!question) return;
+
+    if (!analysis) {
+      setError("Lancez d’abord l’analyse IA avant de discuter avec le chatbot.");
+      return;
+    }
+
+    const newMessages = [
+      ...chatMessages,
+      {
+        role: "user",
+        content: question,
+      },
+    ];
+
+    try {
+      setChatInput("");
+      setChatMessages(newMessages);
+      setChatLoading(true);
+      setError("");
+
+      const res = await fetch(`${API_BASE}/ai/chat-db-analysis`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          db_id: selectedDbId,
+          db_name: selectedDbName,
+          analysis,
+          messages: newMessages,
+        }),
+      });
+
+      const data = await parseJsonSafe(res);
+
+      if (!res.ok) {
+        throw new Error(data?.detail || "Erreur chatbot IA.");
+      }
+
+      setChatMessages([
+        ...newMessages,
+        {
+          role: "assistant",
+          content: data?.answer || "",
+        },
+      ]);
+    } catch (e) {
+      console.error(e);
+      setError(String(e.message || e));
+    } finally {
+      setChatLoading(false);
+    }
+  }
+
+  function handleChatKeyDown(e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendChatMessage();
+    }
   }
 
   if (loadingDbs) {
@@ -195,9 +311,15 @@ export default function AiAnalysis() {
         </div>
 
         {selectedDbName ? (
-          <div style={styles.selectedInfo}>Base sélectionnée : {selectedDbName}</div>
+          <div style={styles.selectedInfo}>
+            Base sélectionnée : <strong>{selectedDbName}</strong>
+          </div>
         ) : null}
       </div>
+
+      {historyLoading ? (
+        <div style={styles.loadingBox}>Chargement de l’historique du chatbot...</div>
+      ) : null}
 
       {error ? <div style={styles.errorBox}>{error}</div> : null}
 
@@ -214,41 +336,75 @@ export default function AiAnalysis() {
       ) : null}
 
       {analysis ? (
-        <div style={styles.resultBox}>
-          <h2 style={styles.resultTitle}>Résultat de l’analyse IA</h2>
+        <>
+          <div style={styles.resultBox}>
+            <h2 style={styles.resultTitle}>Résultat de l’analyse IA</h2>
+            <pre style={styles.resultContent}>{analysis}</pre>
+          </div>
 
-          <pre style={styles.resultContent}>{analysis}</pre>
+          <div style={styles.chatPanel}>
+            <div style={styles.chatHeader}>
+              <div style={styles.chatTitle}>Chatbot IA DBA</div>
+              <div style={styles.chatSubtitle}>
+                Historique chargé automatiquement par base.
+              </div>
+            </div>
 
-          {hasPlaybook ? (
-            <div style={styles.playbookValidationBox}>
-              <div style={styles.validationTitle}>Validation humaine obligatoire</div>
-              <p style={styles.validationText}>
-                Les playbooks sont semi-automatisés. Aucune action corrective n’est
-                exécutée sans validation de l’utilisateur.
-              </p>
+            <div style={styles.chatMessages}>
+              {chatMessages.map((msg, index) => (
+                <div
+                  key={`${msg.role}-${index}`}
+                  style={{
+                    ...styles.messageRow,
+                    justifyContent:
+                      msg.role === "user" ? "flex-end" : "flex-start",
+                  }}
+                >
+                  <div
+                    style={{
+                      ...styles.messageBubble,
+                      ...(msg.role === "user"
+                        ? styles.userBubble
+                        : styles.assistantBubble),
+                    }}
+                  >
+                    <div style={styles.messageText}>{msg.content}</div>
+                  </div>
+                </div>
+              ))}
 
-              <button
-                type="button"
-                style={{
-                  ...styles.validateButton,
-                  ...(validatedPlaybook ? styles.validateButtonDone : {}),
-                }}
-                onClick={validatePlaybook}
-              >
-                {validatedPlaybook
-                  ? "Playbook validé"
-                  : "Valider le playbook recommandé"}
-              </button>
-
-              {validatedPlaybook ? (
-                <div style={styles.validatedBox}>
-                  Playbook validé. Prochaine étape : préparer l’exécution guidée étape
-                  par étape.
+              {chatLoading ? (
+                <div style={styles.messageRow}>
+                  <div style={{ ...styles.messageBubble, ...styles.assistantBubble }}>
+                    <div style={styles.messageText}>Réflexion en cours...</div>
+                  </div>
                 </div>
               ) : null}
             </div>
-          ) : null}
-        </div>
+
+            <div style={styles.chatInputBox}>
+              <textarea
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={handleChatKeyDown}
+                placeholder="Posez une question sur l’analyse IA..."
+                style={styles.chatInput}
+              />
+
+              <button
+                type="button"
+                onClick={sendChatMessage}
+                disabled={chatLoading || !chatInput.trim()}
+                style={{
+                  ...styles.sendButton,
+                  opacity: chatLoading || !chatInput.trim() ? 0.6 : 1,
+                }}
+              >
+                Envoyer
+              </button>
+            </div>
+          </div>
+        </>
       ) : null}
     </div>
   );
@@ -299,7 +455,7 @@ const styles = {
 
   formGrid: {
     display: "grid",
-    gridTemplateColumns: "1fr 220px",
+    gridTemplateColumns: "1fr 240px",
     gap: 16,
     alignItems: "end",
   },
@@ -376,6 +532,7 @@ const styles = {
     borderRadius: 18,
     padding: 20,
     fontWeight: 800,
+    marginBottom: 16,
   },
 
   resultBox: {
@@ -408,51 +565,99 @@ const styles = {
     margin: 0,
   },
 
-  playbookValidationBox: {
-    marginTop: 18,
-    padding: 16,
-    borderRadius: 14,
-    background: "#f8faff",
-    border: "1px solid #c7d2fe",
+  chatPanel: {
+    marginTop: 20,
+    background: "#ffffff",
+    border: "1px solid #dbe4f0",
+    borderRadius: 18,
+    overflow: "hidden",
+    boxShadow: "0 8px 24px rgba(15,23,42,0.05)",
   },
 
-  validationTitle: {
-    fontSize: 15,
-    fontWeight: 800,
+  chatHeader: {
+    padding: "16px 20px",
+    background: "#f8fafc",
+    borderBottom: "1px solid #e2e8f0",
+  },
+
+  chatTitle: {
+    fontSize: 18,
+    fontWeight: 900,
     color: "#1e3a8a",
-    marginBottom: 8,
   },
 
-  validationText: {
-    margin: "0 0 14px 0",
+  chatSubtitle: {
+    marginTop: 4,
     fontSize: 13,
-    color: "#475569",
-    lineHeight: 1.6,
+    color: "#64748b",
   },
 
-  validateButton: {
-    height: 44,
-    border: "none",
-    borderRadius: 12,
-    padding: "0 16px",
-    background: "#4f46e5",
+  chatMessages: {
+    minHeight: 260,
+    maxHeight: 520,
+    overflowY: "auto",
+    padding: 18,
+    background: "#f8fafc",
+  },
+
+  messageRow: {
+    display: "flex",
+    marginBottom: 12,
+  },
+
+  messageBubble: {
+    maxWidth: "78%",
+    borderRadius: 16,
+    padding: "11px 14px",
+    boxShadow: "0 4px 12px rgba(15,23,42,0.06)",
+  },
+
+  userBubble: {
+    background: "#2563eb",
     color: "#ffffff",
-    fontWeight: 800,
-    cursor: "pointer",
+    borderTopRightRadius: 4,
   },
 
-  validateButtonDone: {
-    background: "#16a34a",
+  assistantBubble: {
+    background: "#ffffff",
+    color: "#0f172a",
+    border: "1px solid #e2e8f0",
+    borderTopLeftRadius: 4,
   },
 
-  validatedBox: {
-    marginTop: 12,
+  messageText: {
+    whiteSpace: "pre-wrap",
+    fontSize: 14,
+    lineHeight: 1.65,
+  },
+
+  chatInputBox: {
+    display: "flex",
+    gap: 12,
+    padding: 14,
+    borderTop: "1px solid #e2e8f0",
+    background: "#ffffff",
+  },
+
+  chatInput: {
+    flex: 1,
+    minHeight: 54,
+    maxHeight: 130,
+    resize: "vertical",
+    border: "1px solid #cbd5e1",
+    borderRadius: 14,
     padding: 12,
-    borderRadius: 12,
-    background: "#f0fdf4",
-    border: "1px solid #bbf7d0",
-    color: "#166534",
-    fontSize: 13,
-    fontWeight: 700,
+    fontSize: 14,
+    outline: "none",
+  },
+
+  sendButton: {
+    background: "#2563eb",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: 14,
+    padding: "0 22px",
+    fontWeight: 900,
+    cursor: "pointer",
   },
 };

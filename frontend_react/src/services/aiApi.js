@@ -39,3 +39,37 @@ export async function analyzeMultiPhv(payload) {
 
   return data;
 }
+
+export async function chatSqlAnalysis(payload) {
+  const res = await fetch(`${API_BASE}/ai/chat-sql-analysis`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await parseJsonSafe(res);
+
+  if (!res.ok) {
+    throw new Error(data?.detail || "Erreur chatbot IA");
+  }
+
+  return data;
+}
+
+export async function getChatHistory(sqlId) {
+  const res = await fetch(
+    `${API_BASE}/ai/chat-history/${encodeURIComponent(sqlId)}`,
+    {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    }
+  );
+
+  const data = await parseJsonSafe(res);
+
+  if (!res.ok) {
+    throw new Error(data?.detail || "Erreur chargement historique chatbot");
+  }
+
+  return data;
+}
