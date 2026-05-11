@@ -15,6 +15,9 @@ export default function AnalyseurSQL() {
   const [selectedPhv, setSelectedPhv] = useState(null);
   const [planText, setPlanText] = useState("");
 
+  const [comparisonPlans, setComparisonPlans] = useState([]);
+  const [comparisonLoading, setComparisonLoading] = useState(false);
+
   const [phvTables, setPhvTables] = useState([]);
   const [phvIndexes, setPhvIndexes] = useState([]);
   const [objectDetailsLoading, setObjectDetailsLoading] = useState(false);
@@ -216,6 +219,42 @@ export default function AnalyseurSQL() {
     }
   }
 
+  async function fetchAllPlansForSelectedScript(script) {
+    if (
+      !selectedDbId ||
+      !script?.sql_id ||
+      !Array.isArray(script.phv_list) ||
+      script.phv_list.length <= 1
+    ) {
+      setComparisonPlans([]);
+      return;
+    }
+
+    try {
+      setComparisonLoading(true);
+
+      const plans = await Promise.all(
+        script.phv_list.map(async (phv) => {
+          const text = await fetchPlanForPhv(script.sql_id, phv, true);
+          return {
+            phv,
+            planText: text,
+          };
+        })
+      );
+
+      setComparisonPlans(plans);
+    } catch (e) {
+      setComparisonPlans([]);
+      setMessage({
+        type: "error",
+        text: e.message || "Erreur chargement comparaison PHV.",
+      });
+    } finally {
+      setComparisonLoading(false);
+    }
+  }
+
   useEffect(() => {
     loadData();
   }, []);
@@ -263,6 +302,7 @@ export default function AnalyseurSQL() {
     setSelectedScriptId("");
     setSelectedPhv(null);
     setPlanText("");
+    setComparisonPlans([]);
     setPhvTables([]);
     setPhvIndexes([]);
     setActiveBottomTab("plan");
@@ -298,11 +338,19 @@ export default function AnalyseurSQL() {
       selectedScript.phv_list.length > 0
     ) {
       const defaultPhv = selectedScript.default_phv ?? selectedScript.phv_list[0];
+
       setSelectedPhv(defaultPhv);
       fetchPlanForPhv(selectedScript.sql_id, defaultPhv);
+
+      if (selectedScript.phv_list.length > 1) {
+        fetchAllPlansForSelectedScript(selectedScript);
+      } else {
+        setComparisonPlans([]);
+      }
     } else {
       setSelectedPhv(null);
       setPlanText("");
+      setComparisonPlans([]);
       setPhvTables([]);
       setPhvIndexes([]);
     }
@@ -378,7 +426,7 @@ export default function AnalyseurSQL() {
         <div>
           <div style={styles.pageTitle}>SQL Analyzer</div>
           <div style={styles.pageSubtitle}>
-            Top 10 requêtes SQL avec PHV et plan d'exécution Oracle
+            Top 10 requêtes SQL avec PHV et comparaison automatique des plans
           </div>
         </div>
 
@@ -519,7 +567,7 @@ export default function AnalyseurSQL() {
                   <span>SQL_ID</span>
                   <strong>{selectedScript?.sql_id || "—"}</strong>
                   <span>•</span>
-                  <span>PHV</span>
+                  <span>PHV sélectionné</span>
                   <strong>
                     {selectedPhv !== null ? formatNumber(selectedPhv) : "—"}
                   </strong>
@@ -531,7 +579,7 @@ export default function AnalyseurSQL() {
                   onClick={handleCopyPlan}
                   disabled={!planText}
                 >
-                  Copier le plan
+                  Copier le plan sélectionné
                 </button>
               </div>
             </div>
@@ -540,18 +588,44 @@ export default function AnalyseurSQL() {
 
             {selectedDbType !== "ORACLE" ? (
               <InfoBox text="Le plan Oracle est disponible uniquement pour Oracle." />
-            ) : planTextLoading ? (
+            ) : planTextLoading && !comparisonPlans.length ? (
               <InfoBox text="Chargement du plan texte..." />
             ) : !selectedScript?.sql_id ? (
               <InfoBox text="Sélectionnez une requête pour afficher son plan." />
             ) : selectedPhv === null || selectedPhv === undefined ? (
               <InfoBox text="Sélectionnez un PHV pour afficher le plan." />
-            ) : !planText ? (
+            ) : !planText && !comparisonPlans.length ? (
               <InfoBox text="Aucun plan DBMS_XPLAN retourné pour ce PHV." />
             ) : (
               <>
-                <div style={styles.subPanelTitle}>Plan sélectionné</div>
-                <pre style={styles.planTextBlock}>{planText}</pre>
+                {comparisonLoading ? (
+                  <InfoBox text="Chargement de la comparaison des PHV..." />
+                ) : comparisonPlans.length > 1 ? (
+                  <>
+                    <div style={styles.subPanelTitle}>
+                      Comparaison automatique des plans PHV côte à côte
+                    </div>
+
+                    <div style={styles.phvComparisonGrid}>
+                      {comparisonPlans.map((item) => (
+                        <div key={item.phv} style={styles.phvComparisonCard}>
+                          <div style={styles.phvComparisonHeader}>
+                            PHV : {formatNumber(item.phv)}
+                          </div>
+
+                          <pre style={styles.planTextBlockSmall}>
+                            {item.planText || "Aucun plan retourné pour ce PHV."}
+                          </pre>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={styles.subPanelTitle}>Plan sélectionné</div>
+                    <pre style={styles.planTextBlock}>{planText}</pre>
+                  </>
+                )}
 
                 <div style={{ height: 18 }} />
 
@@ -760,7 +834,7 @@ function PhvTablesPanel({
 
   return (
     <>
-      <div style={styles.subPanelTitle}>Détails des tables du PHV</div>
+      <div style={styles.subPanelTitle}>Détails des tables du PHV sélectionné</div>
 
       <div style={styles.tableWrap}>
         <table style={styles.table}>
@@ -851,7 +925,9 @@ function PhvIndexesPanel({ rows, loading, formatNumber }) {
   return (
     <>
       <div style={styles.indexPanelHeader}>
-        <div style={styles.subPanelTitle}>Détails des index des tables du PHV</div>
+        <div style={styles.subPanelTitle}>
+          Détails des index des tables du PHV sélectionné
+        </div>
 
         {indexOptions.length > 1 ? (
           <div style={styles.indexFilterBox}>
@@ -1063,6 +1139,38 @@ const styles = {
     fontWeight: 900,
     color: "#14213d",
     marginBottom: 12,
+  },
+  phvComparisonGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))",
+    gap: 16,
+    alignItems: "start",
+  },
+  phvComparisonCard: {
+    border: "1px solid #dbeafe",
+    borderRadius: 14,
+    background: "#ffffff",
+    overflow: "hidden",
+  },
+  phvComparisonHeader: {
+    padding: "0.75rem 1rem",
+    background: "#eff6ff",
+    color: "#1d4ed8",
+    fontWeight: 900,
+    borderBottom: "1px solid #dbeafe",
+  },
+  planTextBlockSmall: {
+    margin: 0,
+    padding: "1rem",
+    background: "linear-gradient(135deg, #101827 0%, #1f2937 100%)",
+    color: "#eef2ff",
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+    fontSize: 12,
+    lineHeight: 1.55,
+    whiteSpace: "pre-wrap",
+    overflowX: "auto",
+    minHeight: 360,
+    maxHeight: 620,
   },
   indexPanelHeader: {
     display: "flex",

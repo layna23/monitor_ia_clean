@@ -38,83 +38,118 @@ const menuGroups = [
   },
 ];
 
-export default function BarreLaterale() {
+export default function BarreLaterale({ collapsed = false, onToggle }) {
   return (
-    <aside style={styles.sidebar}>
-      <div style={styles.logoWrap}>
-        <div style={styles.logoBadge}>DB</div>
-        <div>
-          <div style={styles.logoTitle}>DB Monitor</div>
-          <div style={styles.logoSub}>Monitoring IA</div>
-        </div>
+    <aside
+      style={{
+        ...styles.sidebar,
+        width: collapsed ? 64 : 260,
+        padding: collapsed ? "20px 10px 16px" : "20px 14px 16px",
+      }}
+    >
+      <div
+        style={{
+          ...styles.logoWrap,
+          justifyContent: collapsed ? "center" : "space-between",
+          padding: collapsed ? "4px 0 16px" : "4px 8px 16px",
+        }}
+      >
+        {!collapsed && (
+          <div style={styles.logoLeft}>
+            <div style={styles.logoBadge}>DB</div>
+            <div>
+              <div style={styles.logoTitle}>DB Monitor</div>
+              <div style={styles.logoSub}>Monitoring IA</div>
+            </div>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={onToggle}
+          style={styles.toggleBtn}
+          title={collapsed ? "Ouvrir le menu" : "Fermer le menu"}
+        >
+          ☰
+        </button>
       </div>
 
       <div style={styles.divider} />
 
-      <nav style={styles.nav}>
-        {menuGroups.map((group, gi) => (
-          <div key={gi} style={styles.groupBlock}>
-            {group.group && <div style={styles.groupLabel}>{group.group}</div>}
+      {!collapsed && (
+        <nav style={styles.nav}>
+          {menuGroups.map((group, gi) => (
+            <div key={gi} style={styles.groupBlock}>
+              {group.group && <div style={styles.groupLabel}>{group.group}</div>}
 
-            {group.items.map((item) => {
-              if (item.external) {
+              {group.items.map((item) => {
+                if (item.external) {
+                  return (
+                    <a
+                      key={item.label}
+                      href={item.path}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={styles.prefectLink}
+                    >
+                      <span>{item.label}</span>
+                      <span style={styles.prefectBadge}>Ouvrir</span>
+                    </a>
+                  );
+                }
+
                 return (
-                  <a
-                    key={item.label}
-                    href={item.path}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={styles.prefectLink}
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    style={({ isActive }) => ({
+                      ...styles.link,
+                      ...(isActive ? styles.activeLink : {}),
+                    })}
                   >
-                    <span>{item.label}</span>
-                    <span style={styles.prefectBadge}>Ouvrir</span>
-                  </a>
+                    {item.label}
+                  </NavLink>
                 );
-              }
+              })}
 
-              return (
-                <NavLink
-                  key={item.path}
-                  to={item.path}
-                  style={({ isActive }) => ({
-                    ...styles.link,
-                    ...(isActive ? styles.activeLink : {}),
-                  })}
-                >
-                  {item.label}
-                </NavLink>
-              );
-            })}
+              {gi < menuGroups.length - 1 && <div style={styles.groupDivider} />}
+            </div>
+          ))}
+        </nav>
+      )}
 
-            {gi < menuGroups.length - 1 && <div style={styles.groupDivider} />}
-          </div>
-        ))}
-      </nav>
-
-      <div style={styles.footer}>
-        <div style={styles.divider} />
-        <button style={styles.logoutBtn}>Déconnexion</button>
-      </div>
+      {!collapsed && (
+        <div style={styles.footer}>
+          <div style={styles.divider} />
+          <button style={styles.logoutBtn}>Déconnexion</button>
+        </div>
+      )}
     </aside>
   );
 }
 
 const styles = {
   sidebar: {
-    width: 260,
     minHeight: "100vh",
     background: "#ffffff",
     borderRight: "1px solid #e2e8f0",
-    padding: "20px 14px 16px",
     display: "flex",
     flexDirection: "column",
+    transition: "all 0.25s ease",
+    overflow: "hidden",
+    boxSizing: "border-box",
   },
 
   logoWrap: {
     display: "flex",
     alignItems: "center",
     gap: 10,
-    padding: "4px 8px 16px",
+  },
+
+  logoLeft: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
   },
 
   logoBadge: {
@@ -127,17 +162,33 @@ const styles = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
 
   logoTitle: {
     fontSize: 16,
     fontWeight: 900,
     color: "#0f172a",
+    whiteSpace: "nowrap",
   },
 
   logoSub: {
     fontSize: 11,
     color: "#94a3b8",
+    whiteSpace: "nowrap",
+  },
+
+  toggleBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    border: "1px solid #dbeafe",
+    background: "#ffffff",
+    color: "#2563eb",
+    fontSize: 18,
+    fontWeight: 900,
+    cursor: "pointer",
+    flexShrink: 0,
   },
 
   divider: {

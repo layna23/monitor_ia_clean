@@ -32,9 +32,9 @@ function formatChartDateTime(value) {
   const d = safeDate(value);
   if (!d) return "-";
   const pad = (n) => String(n).padStart(2, "0");
-  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(
-    d.getMinutes()
-  )}`;
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}`;
 }
 
 function prettifyMetricLabel(code, metricDefs = []) {
@@ -118,6 +118,16 @@ export default function Dashboard() {
     }
   }
 
+  async function refreshMetrics() {
+    const [values, latest] = await Promise.all([
+      apiGet("/metric-values/", []),
+      apiGet("/metric-values/latest", []),
+    ]);
+
+    setMetricValues(Array.isArray(values) ? values : []);
+    setLatestMetrics(Array.isArray(latest) ? latest : []);
+  }
+
   async function getOracleTopSql(dbId, excludeDbmon = false) {
     const params = new URLSearchParams();
     params.append("db_id", String(dbId));
@@ -164,6 +174,14 @@ export default function Dashboard() {
     }
 
     load();
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refreshMetrics();
+    }, 10000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const selectedDb = useMemo(() => {
@@ -309,18 +327,28 @@ export default function Dashboard() {
         .slice(-80);
 
       const lines = [
-        data.some((row) => row.ACTIVE_SESSIONS !== null && row.ACTIVE_SESSIONS !== undefined)
+        data.some(
+          (row) => row.ACTIVE_SESSIONS !== null && row.ACTIVE_SESSIONS !== undefined
+        )
           ? {
               key: "ACTIVE_SESSIONS",
-              name: `${selectedDbName} - ${prettifyMetricLabel("ACTIVE_SESSIONS", metricDefs)}`,
+              name: `${selectedDbName} - ${prettifyMetricLabel(
+                "ACTIVE_SESSIONS",
+                metricDefs
+              )}`,
               stroke: C.blue,
               strokeDasharray: "0",
             }
           : null,
-        data.some((row) => row.SESSION_COUNT !== null && row.SESSION_COUNT !== undefined)
+        data.some(
+          (row) => row.SESSION_COUNT !== null && row.SESSION_COUNT !== undefined
+        )
           ? {
               key: "SESSION_COUNT",
-              name: `${selectedDbName} - ${prettifyMetricLabel("SESSION_COUNT", metricDefs)}`,
+              name: `${selectedDbName} - ${prettifyMetricLabel(
+                "SESSION_COUNT",
+                metricDefs
+              )}`,
               stroke: C.green,
               strokeDasharray: "6 4",
             }
@@ -356,7 +384,10 @@ export default function Dashboard() {
       lines: [
         {
           key: "value",
-          name: `${selectedDbName} - ${prettifyMetricLabel(selectedMetric, metricDefs)}`,
+          name: `${selectedDbName} - ${prettifyMetricLabel(
+            selectedMetric,
+            metricDefs
+          )}`,
           stroke: C.blue,
           strokeDasharray: "0",
         },
