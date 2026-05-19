@@ -18,8 +18,23 @@ import AiAnalysis from "./pages/AiAnalysis";
 
 import MiseEnPage from "./components/MiseEnPage";
 
+function ProtectedRoute({ children, allowedRoles }) {
+  const token = localStorage.getItem("token");
+  const role = localStorage.getItem("role");
+
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (!allowedRoles.includes(role)) {
+    return <Navigate to="/accueil" replace />;
+  }
+
+  return children;
+}
+
 function App() {
-  const [isLogged, setIsLogged] = useState(false);
+  const [isLogged, setIsLogged] = useState(!!localStorage.getItem("token"));
 
   if (!isLogged) {
     return <Login onLogin={() => setIsLogged(true)} />;
@@ -29,26 +44,141 @@ function App() {
     <MiseEnPage>
       <Routes>
         <Route path="/" element={<Navigate to="/accueil" replace />} />
-        <Route path="/accueil" element={<Accueil />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/config-bd" element={<ConfigBD />} />
-        <Route path="/db-types" element={<DbTypes />} />
-        <Route path="/test-db" element={<TestDB />} />
+        <Route path="/login" element={<Navigate to="/accueil" replace />} />
+
+        <Route
+          path="/accueil"
+          element={
+            <ProtectedRoute
+              allowedRoles={["SUPER_ADMIN", "ADMIN", "CONSULTANT", "SIMPLE_USER"]}
+            >
+              <Accueil />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute
+              allowedRoles={["SUPER_ADMIN", "ADMIN", "CONSULTANT", "SIMPLE_USER"]}
+            >
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/config-bd"
+          element={
+            <ProtectedRoute allowedRoles={["SUPER_ADMIN", "ADMIN"]}>
+              <ConfigBD />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/db-types"
+          element={
+            <ProtectedRoute allowedRoles={["SUPER_ADMIN", "ADMIN"]}>
+              <DbTypes />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/test-db"
+          element={
+            <ProtectedRoute allowedRoles={["SUPER_ADMIN", "ADMIN"]}>
+              <TestDB />
+            </ProtectedRoute>
+          }
+        />
 
         <Route
           path="/bases-surveillees"
           element={<Navigate to="/vue-globale-bd" replace />}
         />
 
-        <Route path="/configuration-metriques" element={<ConfigurationMetriques />} />
-        <Route path="/alertes" element={<Alertes />} />
-        <Route path="/utilisateurs" element={<Utilisateurs />} />
-        <Route path="/roles" element={<Roles />} />
-        <Route path="/analyseur-sql" element={<AnalyseurSQL />} />
-        <Route path="/vue-globale-bd" element={<VueGlobaleBD />} />
-        <Route path="/bases/:id" element={<DetailBase />} />
+        <Route
+          path="/configuration-metriques"
+          element={
+            <ProtectedRoute allowedRoles={["SUPER_ADMIN", "ADMIN"]}>
+              <ConfigurationMetriques />
+            </ProtectedRoute>
+          }
+        />
 
-        <Route path="/ai-analysis" element={<AiAnalysis />} />
+        <Route
+          path="/alertes"
+          element={
+            <ProtectedRoute
+              allowedRoles={["SUPER_ADMIN", "ADMIN", "CONSULTANT", "SIMPLE_USER"]}
+            >
+              <Alertes />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/utilisateurs"
+          element={
+            <ProtectedRoute allowedRoles={["SUPER_ADMIN", "ADMIN"]}>
+              <Utilisateurs />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/roles"
+          element={
+            <ProtectedRoute allowedRoles={["SUPER_ADMIN"]}>
+              <Roles />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/analyseur-sql"
+          element={
+            <ProtectedRoute allowedRoles={["SUPER_ADMIN", "ADMIN", "CONSULTANT"]}>
+              <AnalyseurSQL />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/vue-globale-bd"
+          element={
+            <ProtectedRoute
+              allowedRoles={["SUPER_ADMIN", "ADMIN", "CONSULTANT", "SIMPLE_USER"]}
+            >
+              <VueGlobaleBD />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/bases/:id"
+          element={
+            <ProtectedRoute
+              allowedRoles={["SUPER_ADMIN", "ADMIN", "CONSULTANT", "SIMPLE_USER"]}
+            >
+              <DetailBase />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/ai-analysis"
+          element={
+            <ProtectedRoute allowedRoles={["SUPER_ADMIN", "ADMIN", "CONSULTANT"]}>
+              <AiAnalysis />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route path="*" element={<Navigate to="/accueil" replace />} />
       </Routes>
     </MiseEnPage>
   );

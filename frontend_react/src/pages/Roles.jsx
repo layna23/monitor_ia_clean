@@ -2,6 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 
 const API_BASE = "http://127.0.0.1:8000";
 
+function getAuthHeaders() {
+  const token = localStorage.getItem("token");
+
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+}
+
 export default function Roles() {
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -25,42 +34,66 @@ export default function Roles() {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   async function apiGet(url) {
-    const res = await fetch(API_BASE + url);
-    if (!res.ok) throw new Error("GET error");
+    const res = await fetch(API_BASE + url, {
+      headers: getAuthHeaders(),
+    });
+
+    if (!res.ok) {
+      throw new Error("GET error");
+    }
+
     return res.json();
   }
 
   async function apiPost(url, data) {
     const res = await fetch(API_BASE + url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
-    if (!res.ok) throw new Error("POST error");
+
+    if (!res.ok) {
+      throw new Error("POST error");
+    }
+
     return res.json();
   }
 
   async function apiPut(url, data) {
     const res = await fetch(API_BASE + url, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
-    if (!res.ok) throw new Error("PUT error");
+
+    if (!res.ok) {
+      throw new Error("PUT error");
+    }
+
     return res.json();
   }
 
   async function apiDelete(url) {
-    const res = await fetch(API_BASE + url, { method: "DELETE" });
-    if (!res.ok) throw new Error("DELETE error");
+    const res = await fetch(API_BASE + url, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    });
+
+    if (!res.ok) {
+      throw new Error("DELETE error");
+    }
+
     return true;
   }
 
   async function loadRoles() {
     try {
       setLoading(true);
+      setMessage({ type: "", text: "" });
+
       const data = await apiGet("/roles/");
       const list = Array.isArray(data) ? data : [];
+
       setRoles(list);
 
       if (list.length > 0) {
@@ -69,14 +102,18 @@ export default function Roles() {
           setSelectedEditId(String(first.role_id));
           fillEditForm(first);
         } else {
-          const found = list.find((r) => String(r.role_id) === String(selectedEditId));
+          const found = list.find(
+            (r) => String(r.role_id) === String(selectedEditId)
+          );
           if (found) fillEditForm(found);
         }
 
         if (!selectedDeleteId) {
           setSelectedDeleteId(String(list[0].role_id));
         } else {
-          const exists = list.some((r) => String(r.role_id) === String(selectedDeleteId));
+          const exists = list.some(
+            (r) => String(r.role_id) === String(selectedDeleteId)
+          );
           if (!exists) setSelectedDeleteId(String(list[0].role_id));
         }
       }
@@ -131,7 +168,7 @@ export default function Roles() {
         role_name: rn,
       });
 
-      setMessage({ type: "success", text: "Rôle créé " });
+      setMessage({ type: "success", text: "Rôle créé." });
       setShowCreate(false);
       resetCreateForm();
       await loadRoles();
@@ -159,7 +196,7 @@ export default function Roles() {
         role_name: rn,
       });
 
-      setMessage({ type: "success", text: "Rôle mis à jour " });
+      setMessage({ type: "success", text: "Rôle mis à jour." });
       await loadRoles();
     } catch {
       setMessage({ type: "error", text: "Erreur lors de la mise à jour." });
@@ -173,7 +210,7 @@ export default function Roles() {
 
     try {
       await apiDelete(`/roles/${selectedDeleteRole.role_id}`);
-      setMessage({ type: "success", text: "Rôle supprimé " });
+      setMessage({ type: "success", text: "Rôle supprimé." });
       setConfirmDelete(false);
       await loadRoles();
     } catch {
@@ -198,10 +235,10 @@ export default function Roles() {
 
       <div style={styles.toolbar}>
         <button style={styles.primaryButton} onClick={() => setShowCreate(true)}>
-           Nouveau rôle
+          Nouveau rôle
         </button>
         <button style={styles.secondaryButton} onClick={loadRoles}>
-           Rafraîchir
+          Rafraîchir
         </button>
       </div>
 
@@ -285,7 +322,9 @@ export default function Roles() {
                 value={selectedEditId}
                 onChange={(e) => {
                   setSelectedEditId(e.target.value);
-                  const found = roles.find((r) => String(r.role_id) === String(e.target.value));
+                  const found = roles.find(
+                    (r) => String(r.role_id) === String(e.target.value)
+                  );
                   if (found) fillEditForm(found);
                 }}
               >
@@ -342,7 +381,7 @@ export default function Roles() {
 
               {selectedDeleteRole && (
                 <div style={styles.dangerNote}>
-                   Action irréversible — rôle <b>{selectedDeleteRole.role_code}</b> supprimé
+                  Action irréversible — rôle <b>{selectedDeleteRole.role_code}</b> supprimé
                   définitivement.
                 </div>
               )}
@@ -441,6 +480,7 @@ function DataTable({ columns, rows }) {
             ))}
           </tr>
         </thead>
+
         <tbody>
           {rows.map((row, idx) => (
             <tr key={idx} style={idx % 2 === 0 ? styles.rowEven : styles.rowOdd}>

@@ -2,6 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 
 const API_BASE = "http://127.0.0.1:8000";
 
+function getAuthHeaders() {
+  const token = localStorage.getItem("token");
+
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+}
+
 export default function Utilisateurs() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,7 +40,9 @@ export default function Utilisateurs() {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   async function apiGet(url) {
-    const res = await fetch(API_BASE + url);
+    const res = await fetch(API_BASE + url, {
+      headers: getAuthHeaders(),
+    });
     if (!res.ok) throw new Error("GET error");
     return res.json();
   }
@@ -39,7 +50,7 @@ export default function Utilisateurs() {
   async function apiPost(url, data) {
     const res = await fetch(API_BASE + url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
     if (!res.ok) throw new Error("POST error");
@@ -49,7 +60,7 @@ export default function Utilisateurs() {
   async function apiPut(url, data) {
     const res = await fetch(API_BASE + url, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
     if (!res.ok) throw new Error("PUT error");
@@ -57,7 +68,10 @@ export default function Utilisateurs() {
   }
 
   async function apiDelete(url) {
-    const res = await fetch(API_BASE + url, { method: "DELETE" });
+    const res = await fetch(API_BASE + url, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    });
     if (!res.ok) throw new Error("DELETE error");
     return true;
   }

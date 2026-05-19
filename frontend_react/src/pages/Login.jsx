@@ -22,11 +22,25 @@ export default function Login({ onLogin }) {
         localStorage.setItem("token", res.data.access_token);
       }
 
-      onLogin();
+      if (res.data.user) {
+        localStorage.setItem("user", JSON.stringify(res.data.user));
+      }
 
+      if (res.data.user?.role?.role_code) {
+        localStorage.setItem("role", res.data.user.role.role_code);
+      }
+
+      onLogin();
     } catch (err) {
       console.error(err);
-      setError("Email ou mot de passe incorrect");
+
+      const detail = err.response?.data?.detail;
+
+      if (detail) {
+        setError(detail);
+      } else {
+        setError("Email ou mot de passe incorrect");
+      }
     }
   };
 

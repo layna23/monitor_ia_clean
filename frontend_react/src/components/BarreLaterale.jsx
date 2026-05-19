@@ -1,44 +1,118 @@
-import { NavLink } from "react-router-dom";
-
-const menuGroups = [
-  {
-    group: null,
-    items: [{ label: "Accueil", path: "/accueil" }],
-  },
-  {
-    group: "PARAMÉTRAGE",
-    items: [
-      { label: "Types de bases", path: "/db-types" },
-      { label: "Configuration des bases", path: "/config-bd" },
-      { label: "Configuration des métriques", path: "/configuration-metriques" },
-      { label: "Test connexion DB", path: "/test-db" },
-    ],
-  },
-  {
-    group: "MONITORING",
-    items: [
-      { label: "Dashboard", path: "/dashboard" },
-      { label: "Vue globale des bases", path: "/vue-globale-bd" },
-      { label: "Alertes", path: "/alertes" },
-      { label: "Analyseur SQL", path: "/analyseur-sql" },
-      { label: "Analyse IA", path: "/ai-analysis" },
-      {
-        label: "Prefect UI",
-        path: "http://127.0.0.1:4200",
-        external: true,
-      },
-    ],
-  },
-  {
-    group: "UTILISATEURS",
-    items: [
-      { label: "Rôles", path: "/roles" },
-      { label: "Utilisateurs", path: "/utilisateurs" },
-    ],
-  },
-];
+import { NavLink, useNavigate } from "react-router-dom";
 
 export default function BarreLaterale({ collapsed = false, onToggle }) {
+  const navigate = useNavigate();
+
+  const role = localStorage.getItem("role");
+
+  const menuGroups = [
+    {
+      group: null,
+      items: [
+        {
+          label: "Accueil",
+          path: "/accueil",
+          roles: ["SUPER_ADMIN", "ADMIN", "CONSULTANT", "SIMPLE_USER"],
+        },
+      ],
+    },
+
+    {
+      group: "PARAMÉTRAGE",
+      items: [
+        {
+          label: "Types de bases",
+          path: "/db-types",
+          roles: ["SUPER_ADMIN", "ADMIN"],
+        },
+        {
+          label: "Configuration des bases",
+          path: "/config-bd",
+          roles: ["SUPER_ADMIN", "ADMIN"],
+        },
+        {
+          label: "Configuration des métriques",
+          path: "/configuration-metriques",
+          roles: ["SUPER_ADMIN", "ADMIN"],
+        },
+        {
+          label: "Test connexion DB",
+          path: "/test-db",
+          roles: ["SUPER_ADMIN", "ADMIN"],
+        },
+      ],
+    },
+
+    {
+      group: "MONITORING",
+      items: [
+        {
+          label: "Dashboard",
+          path: "/dashboard",
+          roles: ["SUPER_ADMIN", "ADMIN", "CONSULTANT", "SIMPLE_USER"],
+        },
+        {
+          label: "Vue globale des bases",
+          path: "/vue-globale-bd",
+          roles: ["SUPER_ADMIN", "ADMIN", "CONSULTANT", "SIMPLE_USER"],
+        },
+        {
+          label: "Alertes",
+          path: "/alertes",
+          roles: ["SUPER_ADMIN", "ADMIN", "CONSULTANT", "SIMPLE_USER"],
+        },
+        {
+          label: "Analyseur SQL",
+          path: "/analyseur-sql",
+          roles: ["SUPER_ADMIN", "ADMIN", "CONSULTANT"],
+        },
+        {
+          label: "Analyse IA",
+          path: "/ai-analysis",
+          roles: ["SUPER_ADMIN", "ADMIN", "CONSULTANT"],
+        },
+        {
+          label: "Prefect UI",
+          path: "http://127.0.0.1:4200",
+          external: true,
+          roles: ["SUPER_ADMIN", "ADMIN"],
+        },
+      ],
+    },
+
+    {
+      group: "UTILISATEURS",
+      items: [
+        {
+          label: "Rôles",
+          path: "/roles",
+          roles: ["SUPER_ADMIN"],
+        },
+        {
+          label: "Utilisateurs",
+          path: "/utilisateurs",
+          roles: ["SUPER_ADMIN", "ADMIN"],
+        },
+      ],
+    },
+  ];
+
+  const filteredGroups = menuGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => item.roles.includes(role)),
+    }))
+    .filter((group) => group.items.length > 0);
+
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    localStorage.removeItem("role");
+
+    navigate("/login");
+    window.location.reload();
+  };
+
   return (
     <aside
       style={{
@@ -57,9 +131,10 @@ export default function BarreLaterale({ collapsed = false, onToggle }) {
         {!collapsed && (
           <div style={styles.logoLeft}>
             <div style={styles.logoBadge}>DB</div>
+
             <div>
               <div style={styles.logoTitle}>DB Monitor</div>
-              <div style={styles.logoSub}>Monitoring IA</div>
+              <div style={styles.logoSub}>{role || "Monitoring IA"}</div>
             </div>
           </div>
         )}
@@ -78,7 +153,7 @@ export default function BarreLaterale({ collapsed = false, onToggle }) {
 
       {!collapsed && (
         <nav style={styles.nav}>
-          {menuGroups.map((group, gi) => (
+          {filteredGroups.map((group, gi) => (
             <div key={gi} style={styles.groupBlock}>
               {group.group && <div style={styles.groupLabel}>{group.group}</div>}
 
@@ -112,7 +187,7 @@ export default function BarreLaterale({ collapsed = false, onToggle }) {
                 );
               })}
 
-              {gi < menuGroups.length - 1 && <div style={styles.groupDivider} />}
+              {gi < filteredGroups.length - 1 && <div style={styles.groupDivider} />}
             </div>
           ))}
         </nav>
@@ -121,7 +196,10 @@ export default function BarreLaterale({ collapsed = false, onToggle }) {
       {!collapsed && (
         <div style={styles.footer}>
           <div style={styles.divider} />
-          <button style={styles.logoutBtn}>Déconnexion</button>
+
+          <button style={styles.logoutBtn} onClick={handleLogout}>
+            Déconnexion
+          </button>
         </div>
       )}
     </aside>
@@ -262,5 +340,6 @@ const styles = {
     background: "none",
     color: "#ef4444",
     cursor: "pointer",
+    fontWeight: 700,
   },
 };
